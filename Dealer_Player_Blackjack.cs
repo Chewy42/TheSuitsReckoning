@@ -1,113 +1,125 @@
-using System.Collections;
-using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
-using CardGame;
 
-public class Dealer_Player_Blackjack : Player
+namespace CardGame
 {
-    [HideInInspector]
-    public bool shouldHit = true;
-    
-    [Header("Decision Timing")]
-    public float minDecisionDelay = 0.5f;
-    public float maxDecisionDelay = 1.5f;
-
-    [Header("Strategy Settings")]
-    [Tooltip("How many points below target score the dealer will stand")]
-    public int safetyMargin = 4;
-    [Tooltip("Maximum value dealer will hit on with a soft hand")]
-    public int maxSoftHitValue = 17;
-
-    void Start()
+    public class Dealer_Player_Blackjack : Player
     {
-        playerType = PlayerType.Dealer;
-    }
+        private GameManager gameManager;
 
-    public int GetHandValue()
-    {
-        int value = 0;
-        int aces = 0;
-
-        foreach (Card card in hand)
+        void Start()
         {
-            switch (card.rank)
+            playerType = PlayerType.Dealer;
+            gameManager = FindFirstObjectByType<GameManager>();
+            Debug.Log("Dealer_Player_Blackjack initialized");
+        }
+
+        public override bool ShouldHit()
+        {
+            int currentScore = GetHandValue();
+            int targetScore = gameManager?.GetCurrentTargetScore() ?? 21;
+            var player = FindFirstObjectByType<Player_Blackjack>();
+            int playerScore = player?.GetHandValue() ?? 0;
+            int currentRound = gameManager?.GetCurrentRound() ?? 1;
+
+            Debug.Log($"Dealer deciding to hit - Round: {currentRound}, Current: {currentScore}, Target: {targetScore}, Player: {playerScore}");
+
+            if (playerScore > targetScore)
             {
-                case "Ace":
-                    aces++;
-                    value += 11;
-                    break;
-                case "King":
-                case "Queen":
-                case "Jack":
-                    value += 10;
-                    break;
-                default:
-                    value += int.Parse(card.rank);
-                    break;
+                Debug.Log("Player busted - dealer stands");
+                return false;
             }
-        }
 
-        while (value > 21 && aces > 0)
-        {
-            value -= 10;
-            aces--;
-        }
-
-        // Update the legacy shouldHit flag based on dynamic target
-        GameManager gameManager = FindFirstObjectByType<GameManager>();
-        int targetScore = gameManager != null ? gameManager.GetCurrentTargetScore() : 21;
-        shouldHit = value < (targetScore - safetyMargin);
-        
-        return value;
-    }
-
-    /// <summary>
-    /// Determines if the dealer should hit. Applies slightly more intelligent logic:
-    /// hit if under 17 or if exactly 17 but counting as a soft 17 (an Ace valued as 11).
-    /// </summary>
-    public bool ShouldHit()
-    {
-        int value = 0;
-        int soft = 0; // count of aces still counted as 11
-        GameManager gameManager = FindFirstObjectByType<GameManager>();
-        int targetScore = gameManager != null ? gameManager.GetCurrentTargetScore() : 21;
-        
-        // Calculate minimum value to stand based on target score
-        int minStandValue = targetScore - safetyMargin;
-        
-        foreach (Card card in hand)
-        {
-            if (card.rank == "Ace")
+            if (currentScore >= targetScore)
             {
-                value += 11;
-                soft++;
+                Debug.Log("Dealer reached or exceeded target - stands");
+                return false;
             }
-            else if (card.rank == "King" || card.rank == "Queen" || card.rank == "Jack")
+
+            // More aggressive strategy in later rounds
+            if (currentRound > 1)
             {
-                value += 10;
+                if (currentScore < playerScore || (currentScore < targetScore - 2 && playerScore >= currentScore))
+                {
+                    Debug.Log($"Round {currentRound}: Dealer hitting to beat player score");
+                    return true;
+                }
             }
-            else
+            else if (currentScore < 17)
             {
-                value += int.Parse(card.rank);
+                Debug.Log("Dealer below 17 - must hit");
+                return true;
             }
+
+            int safeMargin = targetScore - currentScore;
+            int scoreGap = playerScore - currentScore;
+
+            bool shouldHit = (safeMargin >= 4 && scoreGap >= safeMargin - 1)
+                || (currentScore < 18 && scoreGap >= 3)
+                || (currentScore < playerScore && safeMargin >= 3);
+
+            Debug.Log($"Dealer decision - Hit: {shouldHit}, SafeMargin: {safeMargin}, ScoreGap: {scoreGap}");
+            return shouldHit;
         }
 
-        // Adjust for aces where necessary
-        while (value > targetScore && soft > 0)
+        public override int GetHandValue()
         {
-            value -= 10;
-            soft--;
-        }
+            if (gameManager == null)
+            {
+                gameManager = FindFirstObjectByType<GameManager>();
+            }
 
-        // More aggressive strategy with soft hands
-        if (soft > 0)
-        {
-            // Hit on soft hands if below maxSoftHitValue (relative to target)
-            int adjustedMaxSoft = Mathf.Min(maxSoftHitValue, targetScore - 2);
-            return value <= adjustedMaxSoft;
-        }
+            int targetScore = gameManager?.GetCurrentTargetScore() ?? 21;
+            int currentRound = gameManager?.GetCurrentRound() ?? 1;
+            GameState currentState = gameManager?.GetCurrentGameState() ?? GameState.Initializing;
+            
+            // During player turn, only count visible cards based on current round
+            if (currentState == GameState.PlayerTurn)
+            {
+                int value = 0;
+                int aces = 0;
+                int visibleCardCount = currentRound == 1 ? 1 : 2;
 
-        // Stand on hard hands at minStandValue or higher
-        return value < minStandValue;
+                var visibleCards = hand.Take(visibleCardCount)
+                                     .Where(card => card != null && !card.IsFaceDown())
+                                     .ToList();
+
+                Debug.Log($"Dealer scoring visible cards - Round: {currentRound}, State: {currentState}, Visible cards: {visibleCards.Count}");
+
+                foreach (Card card in visibleCards.OrderBy(c => c.rank != "Ace"))
+                {
+                    if (card.rank.ToUpper() == "ACE")
+                    {
+                        aces++;
+                        value += 11;
+                    }
+                    else if (new[] { "KING", "QUEEN", "JACK" }.Contains(card.rank.ToUpper()))
+                    {
+                        value += 10;
+                    }
+                    else if (int.TryParse(card.rank, out int rankValue))
+                    {
+                        value += rankValue;
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"Unable to parse dealer card rank: {card.rank}, assuming 10");
+                        value += 10;
+                    }
+
+                    while (value > targetScore && aces > 0)
+                    {
+                        value -= 10;
+                        aces--;
+                    }
+                }
+
+                Debug.Log($"Dealer visible score: {value} (Round {currentRound})");
+                return value;
+            }
+            
+            // During dealer's turn or game end, count all cards
+            return base.GetHandValue();
+        }
     }
 }

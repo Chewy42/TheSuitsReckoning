@@ -13,33 +13,32 @@ public class EnvironmentManager : MonoBehaviour
     public float finalIntensity = 1f;
 
     private Coroutine lightAnimationCoroutine;
+    private float originalSpotAngle;
+    private float originalIntensity;
 
     // Start is called before the first frame update
     void Start()
     {
-        // Find the spotlight if not assigned
-        if (tableSpotLight == null) {
-            for (int i = 0; i < transform.childCount; i++) {
-                if (transform.GetChild(i).CompareTag("TableSpotLight")) {
-                    tableSpotLight = transform.GetChild(i).GetComponent<Light>();
-                    break;
-                }
+        if (tableSpotLight == null)
+        {
+            tableSpotLight = GetComponentInChildren<Light>();
+            if (tableSpotLight == null)
+            {
+                Debug.LogError("No spotlight found in EnvironmentManager or its children!");
+                return;
             }
         }
         
-        if (tableSpotLight != null)
-        {
-            // Initialize light with 0 values
-            tableSpotLight.spotAngle = 0;
-            tableSpotLight.intensity = 0;
-            
-            // Start the smooth animation
-            StartLightAnimation();
-        }
-        else
-        {
-            Debug.LogWarning("TableSpotLight not found.");
-        }
+        // Store original values for cleanup
+        originalSpotAngle = finalSpotAngle;
+        originalIntensity = finalIntensity;
+
+        // Initialize light with 0 values
+        tableSpotLight.spotAngle = 0;
+        tableSpotLight.intensity = 0;
+        
+        // Start the smooth animation
+        StartLightAnimation();
     }
 
     private void StartLightAnimation() {
@@ -52,38 +51,45 @@ public class EnvironmentManager : MonoBehaviour
     private IEnumerator SmoothLightAnimation() {
         float elapsed = 0f;
         
-        try {
-            while (elapsed < animationDuration) {
+        while (elapsed < animationDuration && tableSpotLight != null) {
+            try {
                 elapsed += Time.deltaTime;
                 
                 // Use smooth step for more natural easing
                 float t = elapsed / animationDuration;
                 float smoothT = Mathf.SmoothStep(0f, 1f, t);
                 
-                if (tableSpotLight != null) {
-                    // Apply the interpolated values
-                    tableSpotLight.spotAngle = Mathf.Lerp(0f, finalSpotAngle, smoothT);
-                    tableSpotLight.intensity = Mathf.Lerp(0f, finalIntensity, smoothT);
-                }
-                
-                yield return new WaitForEndOfFrame();
+                // Apply the interpolated values
+                tableSpotLight.spotAngle = Mathf.Lerp(0f, finalSpotAngle, smoothT);
+                tableSpotLight.intensity = Mathf.Lerp(0f, finalIntensity, smoothT);
+            }
+            catch (System.Exception e) {
+                Debug.LogError($"Error in light animation: {e.Message}");
+                yield break;
             }
             
-            // Ensure final values are set exactly
-            if (tableSpotLight != null) {
-                tableSpotLight.spotAngle = finalSpotAngle;
-                tableSpotLight.intensity = finalIntensity;
-            }
+            yield return null;
         }
-        finally {
-            lightAnimationCoroutine = null;
+        
+        // Ensure final values are set exactly
+        if (tableSpotLight != null) {
+            tableSpotLight.spotAngle = finalSpotAngle;
+            tableSpotLight.intensity = finalIntensity;
         }
+        
+        lightAnimationCoroutine = null;
     }
 
     void OnDisable() {
         if (lightAnimationCoroutine != null) {
             StopCoroutine(lightAnimationCoroutine);
             lightAnimationCoroutine = null;
+        }
+
+        // Restore light to full values when disabled
+        if (tableSpotLight != null) {
+            tableSpotLight.spotAngle = originalSpotAngle;
+            tableSpotLight.intensity = originalIntensity;
         }
     }
 

@@ -8,8 +8,6 @@ public class GameIntroCameraManager : MonoBehaviour
     private new Camera camera; // Add 'new' keyword to explicitly hide the inherited member
 
     [SerializeField] 
-    private float smoothSpeed = 2.0f;
-
     private Vector3 targetPosition;
     private Quaternion targetRotation;
 

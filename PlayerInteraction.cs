@@ -1,11 +1,14 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using static UnityEngine.Object;
+using CardGame;  // Add this to get access to GameState enum
 
 public class PlayerInteraction : MonoBehaviour {
     // Current hovered card reference
     private CardGame.Card currentHoveredCard = null;
     private Dictionary<CardGame.Card, Material> originalMaterials = new Dictionary<CardGame.Card, Material>();
+    private CardGame.GameManager gameManager;
     
     // How far to raycast
     public float rayDistance = 100f;
@@ -31,47 +34,78 @@ public class PlayerInteraction : MonoBehaviour {
     // Start is called before the first frame update
     void Start()
     {
-    
+        gameManager = FindFirstObjectByType<CardGame.GameManager>();
     }
 
-    // Update is called once per frame
     void Update()
     {
-        // Perform a raycast from mouse position
-        Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
-        if (Physics.Raycast(ray, out RaycastHit hit, rayDistance))
-        {
-            CardGame.Card hitCard = hit.collider.GetComponent<CardGame.Card>();
-            if (hitCard != null)
-            {
-                // If the hovered card has changed, reset previous and update new one.
-                if (currentHoveredCard != hitCard)
-                {
-                    if (currentHoveredCard != null)
-                        SetCardFade(currentHoveredCard);
-                    
-                    currentHoveredCard = hitCard;
-                    SetCardTransparent(currentHoveredCard);
-                }
+        // Get current game state early to avoid multiple calls
+        var currentState = gameManager?.GetCurrentGameState() ?? GameState.Initializing;
+        
+        // Enhanced state check for interactions
+        if (gameManager == null || 
+            currentState == GameState.Initializing ||
+            currentState == GameState.GameOver ||
+            currentState == GameState.Intermission ||
+            currentState == GameState.DealerTurn ||
+            gameManager.IsDealing() ||
+            gameManager.IsReturnOrRandomizing()) {
+            
+            if (currentHoveredCard != null) {
+                SetCardFade(currentHoveredCard);
+                currentHoveredCard = null;
             }
-            else
-            {
-                // Ray hit but not a card: reset if there is a hovered card.
-                if (currentHoveredCard != null)
-                {
+            return;
+        }
+
+        // Only allow interaction during player's turn and when not dealing
+        if (currentState != GameState.PlayerTurn) {
+            return;
+        }
+
+        Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+        RaycastHit hit;
+        
+        if (Physics.Raycast(ray, out hit, rayDistance)) {
+            CardGame.Card hitCard = hit.collider.GetComponent<CardGame.Card>();
+            
+            // Only allow hovering over player's own cards
+            if (hitCard != null && hitCard.transform.parent != null) {
+                bool isPlayerCard = hitCard.transform.parent.name.StartsWith("PlayerCardSlot_");
+                
+                if (isPlayerCard) {
+                    if (currentHoveredCard != hitCard) {
+                        if (currentHoveredCard != null)
+                            SetCardFade(currentHoveredCard);
+                        
+                        currentHoveredCard = hitCard;
+                        SetCardTransparent(currentHoveredCard);
+                    }
+                } else {
+                    if (currentHoveredCard != null) {
+                        SetCardFade(currentHoveredCard);
+                        currentHoveredCard = null;
+                    }
+                }
+            } else {
+                if (currentHoveredCard != null) {
                     SetCardFade(currentHoveredCard);
                     currentHoveredCard = null;
                 }
             }
-        }
-        else
-        {
-            // No hit: reset if a card was previously hovered.
-            if (currentHoveredCard != null)
-            {
+        } else {
+            if (currentHoveredCard != null) {
                 SetCardFade(currentHoveredCard);
                 currentHoveredCard = null;
             }
+        }
+    }
+
+    private void OnEnable() {
+        // Clear any lingering effects when enabled
+        if (currentHoveredCard != null) {
+            SetCardFade(currentHoveredCard);
+            currentHoveredCard = null;
         }
     }
     

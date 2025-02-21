@@ -1,554 +1,787 @@
-/* The above code is a C# script for a card game implemented in Unity. Here is a summary of what the
-code is doing: */
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
+using Michsky.UI.Heat;
 using UnityEngine;
 
-namespace CardGame {
-    public enum GameState {
+namespace CardGame
+{
+    public enum GameState
+    {
         Initializing,
         WaitingToStart,
         InitialDeal,
         PlayerTurn,
         DealerTurn,
-        GameOver
+        GameOver,
+        Intermission,
     }
 
-    public class GameManager : MonoBehaviour {
-        public Deck deck;
-        public Dealer dealer;
-        public TableCards tableCards;
-        public Player_Blackjack player;
-        public Dealer_Player_Blackjack dealerPlayer;
-        public UIManager uiManager;
-        private AudioManager audioManager;
-        public bool dealerCardRevealed = false; // New flag to track if dealer's hidden card is revealed
-        public bool SkipTutorial = false; // Add a public property to control tutorial skipping
-        
-        private GameState currentGameState = GameState.WaitingToStart;
+    public class GameManager : MonoBehaviour
+    {
+        [Header("References")]
+        [SerializeField] private Player player;
+        [SerializeField] private Player dealerPlayer;
+        [SerializeField] private Dealer dealer;
+        [SerializeField] private Deck deck;
+        [SerializeField] private UIManager uiManager;
+        [SerializeField] private AudioManager audioManager;
+        [SerializeField] private TableCards tableCards;
+
+        [Header("Game State")]
+        private GameState currentGameState = GameState.Initializing;
         private bool isDealing = false;
         private bool isReturningCards = false;
-
-        [Header("Target Score Settings")]
-        public int currentRound = 1;
-        public int round2MinTarget = 18;
-        public int round2MaxTarget = 24;
-        public int round3MinTarget = 15;
-        public int round3MaxTarget = 27;
-        private int currentTargetScore = 21;
-
         private bool isRandomizingTarget = false;
-        public float randomizeDelay = 0.5f; // Changed from 0.2f to 0.5f for more visible changes
-        private int randomizeTimes = 5;
+        private bool isPlayerWinner = false;
 
-        void Start() {
-            Debug.Log("GameManager Start");
-            currentGameState = GameState.Initializing; // Make sure we start in initializing state
-            currentRound = 1;
-            currentTargetScore = 21;
-            isDealing = false;
-            isRandomizingTarget = false;
-            isReturningCards = false;
-            dealerCardRevealed = false; // Reset flag when game starts
+        [Header("Game Progress")]
+        [SerializeField] private int currentRound = 1;
+        [SerializeField] private int currentTargetScore = GameParameters.DEFAULT_TARGET_SCORE;
+        private int currentWins = 0;
+
+        [Header("Dealer Settings")]
+        [SerializeField] private float dealerPlayDelay = GameParameters.DEALER_PLAY_DELAY;
+
+        [Header("Player Interaction")]
+        [SerializeField] private PanelButton hitButton;
+        [SerializeField] private PanelButton standButton;
+
+        private Coroutine dealerPlayCoroutine;
+        private Coroutine intermissionCoroutine;
+
+        private bool isTransitioningState = false;
+        private HashSet<Coroutine> activeCoroutines = new HashSet<Coroutine>();
+        private bool isShuttingDown = false;
+
+        #region Properties
+        public int GetCurrentRound() => currentRound;
+        public int GetCurrentWins() => currentWins;
+        public bool IsDealing() => isDealing;
+        public bool IsReturnOrRandomizing() => isReturningCards || isRandomizingTarget;
+        public GameState GetCurrentGameState() => currentGameState;
+        public int GetCurrentTargetScore() => currentTargetScore;
+        public int GetPlayerScore() => player != null ? player.GetHandValue() : 0;
+        public int GetDealerScore() => dealerPlayer != null ? dealerPlayer.GetHandValue() : 0;
+        public List<Card> GetDealerHand() => dealerPlayer != null ? dealerPlayer.GetHand() : new List<Card>();
+        public AudioManager GetAudioManager() => audioManager;
+        #endregion
+
+        private void Awake()
+        {
             InitializeComponents();
+            Debug.Log("GameManager initialized");
         }
 
-        void InitializeComponents() {
-            Debug.Log("Initializing components...");
-            if (tableCards == null) tableCards = FindFirstObjectByType<TableCards>();
-            if (deck == null) deck = FindFirstObjectByType<Deck>();
-            if (dealer == null) dealer = FindFirstObjectByType<Dealer>();
-            if (player == null) player = FindFirstObjectByType<Player_Blackjack>();
-            if (dealerPlayer == null) dealerPlayer = FindFirstObjectByType<Dealer_Player_Blackjack>();
-            if (uiManager == null) uiManager = FindFirstObjectByType<UIManager>();
-            if (audioManager == null) audioManager = FindFirstObjectByType<AudioManager>();
-
-            // Start initialization sequence
-            StartCoroutine(ValidateComponentsNextFrame());
-        }
-
-        IEnumerator ValidateComponentsNextFrame() {
-            yield return null;
-            
-            Debug.Log("Validating components...");
-            if (deck == null || dealer == null || tableCards == null || player == null || dealerPlayer == null) {
-                Debug.LogError("Missing required components in scene. Please ensure Deck, Dealer, TableCards, and Players are present.");
-                yield break;
-            }
-
-            AssignCardSlots();
-            
-            // Wait a frame to ensure everything is set up
-            yield return null;
-            
-            Debug.Log("Setting initial game state...");
-            currentGameState = GameState.WaitingToStart;
-            RefreshUI();
-            
-            // Automatically start the game
-            Debug.Log("Starting initial game...");
+        private void Start()
+        {
             BeginGame();
         }
 
-        void AssignCardSlots() {
-            Debug.Log("Assigning card slots...");
-            // Clear existing slots
-            player.cardSlots.Clear();
-            dealerPlayer.cardSlots.Clear();
-
-            // Assign new slots from TableCards
-            player.cardSlots.AddRange(tableCards.GetPlayerSlots());
-            dealerPlayer.cardSlots.AddRange(tableCards.GetDealerSlots());
-
-            Debug.Log($"Assigned {player.cardSlots.Count} slots to Player");
-            Debug.Log($"Assigned {dealerPlayer.cardSlots.Count} slots to Dealer");
-        }
-        
-        // New method to consolidate UI update calls.
-        private void RefreshUI() {
-            uiManager.UpdateUI();
+        private void InitializeComponents()
+        {
+            tableCards = tableCards ?? FindFirstObjectByType<TableCards>();
+            player = player ?? FindFirstObjectByType<Player_Blackjack>();
+            dealerPlayer = dealerPlayer ?? FindFirstObjectByType<Dealer_Player_Blackjack>();
+            dealer = dealer ?? FindFirstObjectByType<Dealer>();
+            deck = deck ?? FindFirstObjectByType<Deck>();
+            audioManager = audioManager ?? FindFirstObjectByType<AudioManager>();
+            uiManager = uiManager ?? FindFirstObjectByType<UIManager>();
         }
 
-        // Public method to start the game when ready
-        public void BeginGame() {
-            Debug.Log($"BeginGame called. Current state: {currentGameState}");
-            if (currentGameState != GameState.WaitingToStart) {
-                Debug.LogWarning("Cannot start game - not in waiting state");
-                return;
-            }
-            
-            // Reset all states
+        private void ResetRoundState()
+        {
+            Debug.Log($"Resetting round state - Current Round: {currentRound}, Wins: {currentWins}");
             isDealing = false;
+            isReturningCards = false;
             isRandomizingTarget = false;
-            isReturningCards = false;
-            dealerCardRevealed = false;
-            
-            // Reset player and dealer
-            player.ResetSlots();
-            dealerPlayer.ResetSlots();
-            
-            // Force a UI refresh before starting initial deal
-            if (uiManager != null) {
-                uiManager.UpdateUI();
-                uiManager.UpdateButtonStates();
-            }
-            
-            StartInitialDeal();
+            isPlayerWinner = false;
         }
 
-        private void StartInitialDeal() {
-            Debug.Log("Starting initial deal...");
-            if (!ValidateGameState()) {
-                Debug.LogError("Failed to validate game state!");
-                return;
-            }
+        private void ResetGame(bool fullReset)
+        {
+            Debug.Log($"ResetGame called - FullReset: {fullReset}, Current Round: {currentRound}, Current Wins: {currentWins}");
             
-            Debug.Log("Game state validated, proceeding with initial deal");
-            currentGameState = GameState.InitialDeal;
-            player.ClearHand();
-            dealerPlayer.ClearHand();
-            dealer.ResetInitialDelay();
-            dealerCardRevealed = false;
-            
-            // Ensure flags are reset before dealing
-            isDealing = false;
-            isRandomizingTarget = false;
-            isReturningCards = false;
-            
-            deck.ShuffleDeck();
-            StartCoroutine(DealInitialCards());
-            RefreshUI();
-        }
-
-        private IEnumerator FlipDealerCard() {
-            if (dealerPlayer.GetHand().Count >= 2) {
-                Card card = dealerPlayer.GetHand()[1];
-                if (card != null) {
-                    dealerCardRevealed = true;
-                    yield return StartCoroutine(card.FlipCard());
-                }
-            }
-        }
-
-        private IEnumerator DealInitialCards() {
-            Debug.Log($"Starting initial deal. State: {currentGameState}, isDealing: {isDealing}");
-            isDealing = true;
-            
-            if (uiManager != null) {
-                uiManager.SetGameStatus("Shuffling Deck...");
-            }
-
-            // Deal the initial cards
-            for (int i = 0; i < 2; i++) {
-                // Deal to player first - always face up
-                Card playerCard = deck.DealNextCard();
-                if (playerCard != null) {
-                    Transform playerSlot = player.GetNextAvailableSlot();
-                    if (playerSlot != null) {
-                        yield return StartCoroutine(dealer.DealCard(playerCard, playerSlot, false));
-                        player.AddCardToHand(playerCard);
-                        uiManager.UpdateUI();
-                    }
-                }
-
-                yield return new WaitForSeconds(dealer.delayBetweenCards);
-
-                // Then deal to dealer
-                Card dealerCard = deck.DealNextCard();
-                if (dealerCard != null) {
-                    Transform dealerSlot = dealerPlayer.GetNextAvailableSlot();
-                    if (dealerSlot != null) {
-                        // Second card (i == 1) should be face down
-                        bool shouldBeFaceDown = i == 1;
-                        yield return StartCoroutine(dealer.DealCard(dealerCard, dealerSlot, shouldBeFaceDown));
-                        dealerPlayer.AddCardToHand(dealerCard);
-                        uiManager.UpdateUI();
-                    }
-                }
-
-                if (i < 1) {
-                    yield return new WaitForSeconds(dealer.delayBetweenCards);
-                }
-            }
-
-            // Check for blackjack
-            if (player.GetHandValue() == 21 || dealerPlayer.GetHandValue() == 21) {
-                Debug.Log("Blackjack!");
-                currentGameState = GameState.GameOver;
-                yield return StartCoroutine(FlipDealerCard());
-                string message = player.GetHandValue() == 21 ? "Blackjack! Player wins!" : "Blackjack! Dealer wins!";
-                yield return StartCoroutine(HandleEndGame(message));
-            } else {
-                Debug.Log("No blackjack, starting player turn");
-                isDealing = false;
-                currentGameState = GameState.PlayerTurn;
-                if (audioManager != null) {
-                    audioManager.StartPlayerTurn();
-                }
-                // Force UI refresh to update button states
-                if (uiManager != null) {
-                    uiManager.UpdateUI();
-                    // Call public method instead
-                    RefreshUI();
-                }
-            }
-
-            Debug.Log($"Deal complete. Current state: {currentGameState}, isDealing: {isDealing}");
-        }
-
-        private bool ValidateGameState() {
-            return deck != null && dealer != null && tableCards != null && player != null && dealerPlayer != null;
-        }
-
-        private IEnumerator ReturnCardsToDeck() {
-            isReturningCards = true;
-            dealerCardRevealed = false;
-            float returnDuration = 0.5f;
-
-            // Get all cards from both player and dealer
-            List<Card> allCards = new List<Card>();
-            allCards.AddRange(player.GetHand());
-            allCards.AddRange(dealerPlayer.GetHand());
-
-            // Return each card to deck position
-            foreach (Card card in allCards) {
-                if (card != null && card.gameObject != null) {
-                    // All cards should be face up when returning to deck
-                    card.transform.rotation = Quaternion.Euler(-90f, 0f, 0f);
-                    
-                    if (audioManager != null) {
-                        audioManager.PlayCardReturnSound();
-                    }
-
-                    Vector3 startPos = card.transform.position;
-                    Vector3 targetPos = deck.transform.position;
-                    
-                    float elapsedTime = 0f;
-                    while (elapsedTime < returnDuration) {
-                        elapsedTime += Time.deltaTime;
-                        float t = elapsedTime / returnDuration;
-                        
-                        // Use smoothstep for more natural movement
-                        float smoothT = t * t * (3f - 2f * t);
-                        card.transform.position = Vector3.Lerp(startPos, targetPos, smoothT);
-                        yield return null;
-                    }
-                    
-                    Destroy(card.gameObject);
-                }
-            }
-
-            player.ClearHand();
-            dealerPlayer.ClearHand();
-            
-            yield return new WaitForSeconds(0.5f);
-            isReturningCards = false;
-        }
-
-        private IEnumerator HandleEndGame(string message) {
-            Debug.Log($"EndGame started: {message}");
-            currentGameState = GameState.GameOver;
-            isDealing = true;
-            
-            if (message.Contains("Player wins") || message.Contains("Blackjack! Player wins")) {
-                if (uiManager != null) {
-                    uiManager.IncrementWins();
-                    uiManager.SetGameStatus("Winner!");
-                }
-                if (audioManager != null) {
-                    audioManager.PlayLoseVoiceLine();
-                    yield return new WaitForSeconds(audioManager.GetCurrentVoiceClipDuration());
-                }
-            } else {
-                // On loss, only update UI elements that don't depend on target score
-                if (uiManager != null) {
-                    uiManager.SetGameStatus("Round Lost");
-                    uiManager.ResetWins();
-                    uiManager.UpdateStatusDisplays(1, uiManager.currentWins);
-                }
-                if (audioManager != null && message.Contains("Dealer wins")) {
-                    audioManager.PlayWinVoiceLine();
-                    yield return new WaitForSeconds(audioManager.GetCurrentVoiceClipDuration());
-                }
-            }
-            
-            yield return new WaitForSeconds(1f);
-            yield return StartCoroutine(ReturnCardsToDeck());
-
-            // After cards are returned, handle score updates and round progression
-            if (message.Contains("Player wins") || message.Contains("Blackjack! Player wins")) {
-                if (currentRound < 3) {
-                    currentRound++;
-                    yield return new WaitForSeconds(0.5f);
-                    yield return StartCoroutine(RandomizeNewTargetScore());
-                } else {
-                    currentRound = 1;
-                    currentTargetScore = 21;
-                    if (uiManager != null) {
-                        uiManager.UpdateTargetScore(currentTargetScore);
-                    }
-                }
-            } else {
-                // Reset round and target score after cards are returned on loss
+            if (fullReset)
+            {
                 currentRound = 1;
-                currentTargetScore = 21;
-                if (uiManager != null) {
-                    uiManager.UpdateTargetScore(currentTargetScore);
-                }
+                currentTargetScore = GameParameters.DEFAULT_TARGET_SCORE;
+                currentWins = 0;
+                Debug.Log("Full game reset - All progress cleared");
             }
+
+            ResetRoundState();
             
-            // Reset all state flags before starting new game
-            isDealing = false;
-            isRandomizingTarget = false;
-            isReturningCards = false;
-            dealerCardRevealed = false;
-            // Set game state to waiting so that next game starts via a user interaction or tutorial exit
+            // Clear hands and slots
+            player?.ClearHand();
+            dealerPlayer?.ClearHand();
+
+            // Update UI
+            uiManager?.ResetUI();
+            uiManager?.UpdateStatusDisplays(currentRound, currentWins);
+            uiManager?.UpdateTargetScore(currentTargetScore);
+            uiManager?.SetGameStatus("Shuffling...");
+
+            dealer?.ResetInitialDelay();
+            BeginGame();
+        }
+
+        public void BeginGame()
+        {
+            Debug.Log($"Beginning game - Round: {currentRound}, Wins: {currentWins}");
             currentGameState = GameState.WaitingToStart;
-            
-            // Reset hands for player and dealer
-            player.ClearHand();
-            dealerPlayer.ClearHand();
-            
-            Debug.Log("Game reset complete. Waiting to start new game...");
-            yield return new WaitForSeconds(0.5f);
-            // Removed BeginGame() call to avoid duplicate triggering.
-            // Instead, the game will restart when the appropriate external event occurs (e.g., tutorial completion).
-            RefreshUI();
-        }
-        
-        // Add public getters for game state and scores
-        public GameState GetCurrentGameState() {
-            return currentGameState;
-        }
+            isDealing = true;
 
-        public int GetCurrentTargetScore() {
-            return currentTargetScore;
-        }
-
-        public int GetPlayerScore() {
-            return player != null ? player.GetHandValue() : 0;
-        }
-
-        public int GetDealerScore() {
-            return dealerPlayer != null ? dealerPlayer.GetHandValue() : 0;
-        }
-
-        public bool IsDealing() {
-            return isDealing;
-        }
-
-        public bool IsReturnOrRandomizing() {
-            return isReturningCards || isRandomizingTarget;
-        }
-
-        public void OnPlayerHit() {
-            if (currentGameState != GameState.PlayerTurn || isDealing) {
-                Debug.LogWarning("Cannot hit - not player's turn or dealing in progress");
+            if (tableCards == null)
+            {
+                Debug.LogError("TableCards reference is missing in GameManager!");
                 return;
             }
 
-            Card card = deck.DealNextCard();
-            if (card != null) {
-                Transform slot = player.GetNextAvailableSlot();
-                if (slot != null) {
-                    int previousScore = player.GetHandValue();
-                    isDealing = true;
-                    
-                    // Update UI state before starting deal animation
-                    if (uiManager != null) {
-                        uiManager.UpdateButtonStates();
-                    }
-                    
-                    StartCoroutine(ProcessHitCard(card, slot, previousScore));
-                    
-                    // Audio feedback
-                    if (audioManager != null) {
-                        audioManager.PlayHitButtonSound();
-                    }
+            InitializeCardSlots();
+            ResetPlayerSlots();
+
+            deck?.ShuffleDeck();
+            StartCoroutine(DealInitialCards());
+        }
+
+        private void InitializeCardSlots()
+        {
+            if (tableCards != null)
+            {
+                player.cardSlots = tableCards.GetPlayerSlots();
+                dealerPlayer.cardSlots = tableCards.GetDealerSlots();
+            }
+        }
+
+        private void ResetPlayerSlots()
+        {
+            player?.ResetSlots();
+            dealerPlayer?.ResetSlots();
+            uiManager?.UpdateScores();
+        }
+
+        private void ProcessWin(bool isPlayerWin)
+        {
+            isPlayerWinner = isPlayerWin;
+            Debug.Log($"Processing win - Player Winner: {isPlayerWin}, Current Round: {currentRound}");
+            
+            if (isPlayerWin)
+            {
+                currentWins++;
+                Debug.Log($"Player won - Wins incremented to {currentWins}");
+                uiManager?.IncrementWins();
+                
+                // Force UI update to ensure win count is displayed
+                uiManager?.UpdateStatusDisplays(currentRound, currentWins, true);
+            }
+            else
+            {
+                Debug.Log("Player lost - resetting wins");
+                currentWins = 0;
+                uiManager?.ResetWins();
+            }
+        }
+
+        private string DetermineWinner(int playerScore, int dealerScore)
+        {
+            Debug.Log($"Determining winner - Player: {playerScore}, Dealer: {dealerScore}, Target: {currentTargetScore}");
+            
+            string message;
+            if (dealerScore > currentTargetScore)
+            {
+                message = $"Player wins! Dealer busted with {dealerScore}";
+                ProcessWin(true);
+            }
+            else if (playerScore > currentTargetScore)
+            {
+                message = $"Dealer wins! Player busted with {playerScore}";
+                ProcessWin(false);
+            }
+            else if (dealerScore > playerScore)
+            {
+                message = $"Dealer wins with {dealerScore}!";
+                ProcessWin(false);
+            }
+            else if (playerScore > dealerScore)
+            {
+                message = $"Player wins with {playerScore}!";
+                ProcessWin(true);
+            }
+            else
+            {
+                // Handle tie - dealer wins by house rules
+                message = $"Tie at {playerScore}! Dealer wins!";
+                ProcessWin(false);
+            }
+
+            return message;
+        }
+
+        private IEnumerator HandleEndGame(string message)
+        {
+            yield return StartCoroutine(TransitionGameState(GameState.GameOver));
+            uiManager?.SetGameStatus(message);
+            SetPlayerButtonsInteractable(false);
+            
+            // Update scores one final time to ensure accuracy
+            uiManager?.UpdateScores();
+            
+            // Play appropriate voice line
+            if (isPlayerWinner)
+            {
+                audioManager?.PlaySound(SoundType.Win);
+            }
+            else 
+            {
+                audioManager?.PlaySound(SoundType.Lose);
+            }
+
+            yield return new WaitForSeconds(GameParameters.ROUND_END_DISPLAY_TIME);
+            yield return StartCoroutine(HandleRoundEnd());
+        }
+
+        private IEnumerator HandleRoundEnd()
+        {
+            Debug.Log($"Handling round end - Current Round: {currentRound}, Player Winner: {isPlayerWinner}");
+            
+            if (isPlayerWinner)
+            {
+                if (currentRound < GameParameters.MAX_ROUNDS)
+                {
+                    Debug.Log($"Advancing to round {currentRound + 1}");
+                    yield return StartCoroutine(TransitionGameState(GameState.Intermission));
+                    yield return StartCoroutine(ProcessIntermission());
+                }
+                else
+                {
+                    Debug.Log("Game complete!");
+                    uiManager?.SetGameStatus("Congratulations! Game Complete!");
+                    yield return new WaitForSeconds(GameParameters.GetRoundTransitionDelay(currentRound));
+                    ResetGame(true);
                 }
             }
-        }
-
-        public void OnPlayerStand() {
-            Debug.Log($"Stand button pressed. State: {currentGameState}, isDealing: {isDealing}");
-            if (currentGameState != GameState.PlayerTurn || isDealing) {
-                Debug.LogWarning("Cannot stand - not player's turn or dealing in progress");
-                return;
-            }
-
-            // Change state and update UI before playing audio
-            currentGameState = GameState.DealerTurn;
-            if (uiManager != null) {
-                uiManager.UpdateButtonStates();
-            }
-            
-            // Audio feedback after UI update
-            if (audioManager != null) {
-                audioManager.PlayStandButtonSound();
-                audioManager.EndPlayerTurn();
-            }
-
-            StartCoroutine(ProcessDealerTurn());
-        }
-
-        public void OnTutorialComplete() {
-            if (currentGameState == GameState.WaitingToStart) {
-                BeginGame();
+            else
+            {
+                yield return new WaitForSeconds(GameParameters.GetRoundTransitionDelay(currentRound));
+                ResetGame(true);
             }
         }
 
-        private IEnumerator ProcessHitCard(Card card, Transform slot, int previousScore) {
-            // Player cards are always face up
-            yield return StartCoroutine(dealer.DealCard(card, slot, false));
-            player.AddCardToHand(card);
-            uiManager.UpdateUI();
-            
-            if (audioManager != null) {
-                audioManager.EvaluatePlayerMove(previousScore, true);
-                if (player.GetHandValue() > currentTargetScore) {
-                    audioManager.EndPlayerTurn();
+        private void StopAllGameCoroutines()
+        {
+            if (dealerPlayCoroutine != null)
+            {
+                StopCoroutine(dealerPlayCoroutine);
+                dealerPlayCoroutine = null;
+            }
+            if (intermissionCoroutine != null)
+            {
+                StopCoroutine(intermissionCoroutine);
+                intermissionCoroutine = null;
+            }
+        }
+
+        private void SafeStartCoroutine(IEnumerator routine)
+        {
+            if (!isShuttingDown)
+            {
+                var coroutine = StartCoroutine(routine);
+                activeCoroutines.Add(coroutine);
+            }
+        }
+
+        private void SafeStopCoroutine(Coroutine routine)
+        {
+            if (routine != null && activeCoroutines.Contains(routine))
+            {
+                StopCoroutine(routine);
+                activeCoroutines.Remove(routine);
+            }
+        }
+
+        private void StopAllActiveCoroutines()
+        {
+            foreach (var coroutine in activeCoroutines)
+            {
+                if (coroutine != null)
+                {
+                    StopCoroutine(coroutine);
                 }
             }
-            isDealing = false;
+            activeCoroutines.Clear();
+        }
 
-            // Check if player busted
-            if (player.GetHandValue() > currentTargetScore) {
-                currentGameState = GameState.GameOver;
-                yield return StartCoroutine(HandleEndGame("Dealer wins! Player busted."));
+        private IEnumerator TransitionGameState(GameState newState)
+        {
+            if (isTransitioningState)
+            {
+                Debug.LogWarning($"Already transitioning state, ignoring request to transition to {newState}");
+                yield break;
+            }
+
+            isTransitioningState = true;
+            GameState previousState = currentGameState;
+            
+            try
+            {
+                Debug.Log($"Transitioning from {previousState} to {newState}");
+                
+                // Cleanup previous state
+                switch (previousState)
+                {
+                    case GameState.PlayerTurn:
+                        SetPlayerButtonsInteractable(false);
+                        break;
+                    case GameState.DealerTurn:
+                        StopAllGameCoroutines();
+                        break;
+                }
+
+                // Initialize new state
+                currentGameState = newState;
+                switch (newState)
+                {
+                    case GameState.PlayerTurn:
+                        SetPlayerButtonsInteractable(true);
+                        uiManager?.SetGameStatus("Your turn");
+                        break;
+                    case GameState.DealerTurn:
+                        uiManager?.ShowDealerThinking();
+                        break;
+                    case GameState.GameOver:
+                        SetPlayerButtonsInteractable(false);
+                        StopAllGameCoroutines();
+                        break;
+                }
+
+                yield return null; // Allow frame to complete
+            }
+            finally
+            {
+                isTransitioningState = false;
             }
         }
 
-        private IEnumerator ProcessDealerTurn() {
+        private void OnDestroy()
+        {
+            isShuttingDown = true;
+            StopAllGameCoroutines();
+            StopAllActiveCoroutines();
+        }
+
+        private void OnDisable()
+        {
+            isShuttingDown = true;
+            StopAllGameCoroutines();
+            StopAllActiveCoroutines();
+        }
+
+        private void OnApplicationQuit()
+        {
+            isShuttingDown = true;
+            StopAllGameCoroutines();
+            StopAllActiveCoroutines();
+        }
+
+        private IEnumerator ProcessDealerTurn()
+        {
+            StopAllGameCoroutines();
+            yield return StartCoroutine(TransitionGameState(GameState.DealerTurn));
             yield return StartCoroutine(FlipDealerCard());
-            
-            while (dealerPlayer.ShouldHit()) {
-                Card card = deck.DealNextCard();
-                if (card != null) {
-                    Transform slot = dealerPlayer.GetNextAvailableSlot();
-                    if (slot != null) {
-                        isDealing = true;
-                        // Face down if it's dealer's second card in round 1, or third card in rounds 2-3
-                        bool shouldBeFaceDown = (dealerPlayer.GetHand().Count == 1 && currentRound == 1) || 
-                                             (dealerPlayer.GetHand().Count == 2 && (currentRound == 2 || currentRound == 3));
-                        yield return StartCoroutine(dealer.DealCard(card, slot, shouldBeFaceDown));
-                        dealerPlayer.AddCardToHand(card);
-                        uiManager.UpdateUI();
-                        isDealing = false;
 
-                        // Add delay between dealer hits
-                        yield return new WaitForSeconds(dealer.delayBetweenCards);
-                    }
+            int playerScore = player.GetHandValue();
+            if (playerScore > currentTargetScore)
+            {
+                string message = $"Dealer wins! Player busted with {playerScore}";
+                Debug.Log(message);
+                yield return StartCoroutine(HandleEndGame(message));
+                yield break;
+            }
+
+            dealerPlayCoroutine = StartCoroutine(DealerPlayLoop());
+            yield return dealerPlayCoroutine;
+        }
+
+        private IEnumerator ProcessIntermission()
+        {
+            Debug.Log($"Starting intermission - Current Round: {currentRound}");
+            
+            yield return StartCoroutine(TransitionGameState(GameState.Intermission));
+            isReturningCards = true;
+
+            // First clear the UI and update round display
+            uiManager?.SetGameStatus("Round Complete!");
+            uiManager?.UpdateStatusDisplays(currentRound + 1, currentWins, true);
+            yield return new WaitForSeconds(1f);
+
+            // Return cards to deck with animation
+            yield return StartCoroutine(ReturnAllCardsToDeck());
+            isReturningCards = false;
+            
+            // Increment round after cards are returned
+            currentRound++;
+            Debug.Log($"Advanced to round {currentRound}");
+
+            // Randomize new target score
+            isRandomizingTarget = true;
+            yield return StartCoroutine(RandomizeTargetScore());
+            isRandomizingTarget = false;
+
+            // Play round start sounds and animations
+            yield return StartCoroutine(PlayRoundStartSounds());
+            
+            // Update UI for new round
+            uiManager?.UpdateStatusDisplays(currentRound, currentWins, true);
+            uiManager?.SetGameStatus("Shuffling...");
+            
+            // Shuffle and deal
+            deck?.ShuffleDeck();
+            yield return StartCoroutine(DealInitialCards());
+        }
+
+        private IEnumerator RandomizeTargetScore()
+        {
+            int previousScore = currentTargetScore;
+            int newTargetScore;
+            
+            do
+            {
+                newTargetScore = Random.Range(
+                    GameParameters.MIN_TARGET_SCORE,
+                    GameParameters.MAX_TARGET_SCORE + 1
+                );
+            } while (newTargetScore == previousScore);
+
+            currentTargetScore = newTargetScore;
+            Debug.Log($"New target score: {currentTargetScore}");
+            
+            yield return StartCoroutine(uiManager.AnimateTargetScoreRandomization(newTargetScore));
+        }
+
+        private IEnumerator PlayRoundStartSounds()
+        {
+            audioManager?.PlaySound(SoundType.RoundStart);
+            yield return new WaitForSeconds(GameParameters.ROUND_START_SOUND_DELAY);
+            
+            if (currentRound > 1)
+            {
+                audioManager?.PlayRandomGenericVoiceLine();
+                yield return new WaitForSeconds(1f);
+            }
+        }
+
+        private IEnumerator ReturnAllCardsToDeck()
+        {
+            Debug.Log("Starting to return all cards to deck");
+            
+            // Return dealer's cards first
+            List<Card> dealerCards = new List<Card>(dealerPlayer.GetHand());
+            foreach (Card card in dealerCards)
+            {
+                if (card != null)
+                {
+                    audioManager?.PlaySound(SoundType.CardReturn);
+                    yield return StartCoroutine(ReturnCardToDeck(card));
+                    yield return new WaitForSeconds(0.1f);
                 }
             }
 
-            // Determine winner
-            int playerScore = player.GetHandValue();
-            int dealerScore = dealerPlayer.GetHandValue();
-            
-            string endMessage;
-            if (dealerScore > currentTargetScore) {
-                endMessage = "Player wins! Dealer busted.";
-            } else if (dealerScore >= playerScore) {
-                endMessage = "Dealer wins!";
-            } else {
-                endMessage = "Player wins!";
+            // Then return player's cards
+            List<Card> playerCards = new List<Card>(player.GetHand());
+            foreach (Card card in playerCards)
+            {
+                if (card != null)
+                {
+                    audioManager?.PlaySound(SoundType.CardReturn);
+                    yield return StartCoroutine(ReturnCardToDeck(card));
+                    yield return new WaitForSeconds(0.1f);
+                }
             }
+
+            // Clear hands after all cards are returned
+            dealerPlayer.ClearHand();
+            player.ClearHand();
             
+            yield return new WaitForSeconds(0.5f);
+        }
+
+        private IEnumerator ReturnCardToDeck(Card card)
+        {
+            if (card == null || !card.gameObject || deck == null)
+            {
+                Debug.LogWarning("Attempted to return null or destroyed card to deck");
+                yield break;
+            }
+
+            Vector3 deckPosition = deck.transform.position;
+            float returnSpeed = GameParameters.CARD_RETURN_SPEED;
+
+            while (card != null && card.gameObject)
+            {
+                if (Vector3.Distance(card.transform.position, deckPosition) <= 0.01f)
+                    break;
+
+                card.transform.position = Vector3.Lerp(
+                    card.transform.position,
+                    deckPosition,
+                    Time.deltaTime * returnSpeed
+                );
+
+                yield return null;
+            }
+
+            if (card != null && card.gameObject)
+            {
+                card.transform.position = deckPosition;
+                card.SetFaceDown(true);
+                deck.ReturnCard(card);
+            }
+        }
+
+        private IEnumerator DealCardToSlot(Card card)
+        {
+            if (card == null || player == null)
+            {
+                Debug.LogError($"DealCardToSlot - Card: {(card == null ? "null" : "valid")}, Player: {(player == null ? "null" : "valid")}");
+                isDealing = false;
+                SetPlayerButtonsInteractable(true);
+                yield break;
+            }
+
+            Transform slot = player.GetNextAvailableSlot();
+            if (slot != null)
+            {
+                audioManager?.PlaySound(SoundType.CardDeal);
+                yield return StartCoroutine(dealer.DealCard(card, slot, false));
+                player.AddCardToHand(card);
+                uiManager?.UpdateUI();
+
+                int playerScore = player.GetHandValue();
+                Debug.Log($"After hit - Player score: {playerScore}, Target: {currentTargetScore}");
+                
+                isDealing = false;
+                
+                if (playerScore >= currentTargetScore)
+                {
+                    Debug.Log("Player hit target/bust - transitioning to dealer turn");
+                    StartCoroutine(ProcessDealerTurn());
+                }
+                else
+                {
+                    Debug.Log("Hit complete - enabling player controls");
+                    SetPlayerButtonsInteractable(true);
+                }
+            }
+            else
+            {
+                Debug.LogError("No available slot found for hit card");
+                isDealing = false;
+                SetPlayerButtonsInteractable(true);
+            }
+        }
+
+        private IEnumerator DealInitialCards()
+        {
+            Debug.Log($"Starting initial deal for round {currentRound}");
+            yield return StartCoroutine(TransitionGameState(GameState.InitialDeal));
+            isDealing = true;
+
+            try
+            {
+                ResetPlayerSlots();
+
+                // Deal player's cards (always face up)
+                for (int i = 0; i < GameParameters.INITIAL_CARDS_PER_PLAYER; i++)
+                {
+                    var playerCard = deck.DrawCard();
+                    if (playerCard != null)
+                    {
+                        audioManager?.PlaySound(SoundType.Deal);
+                        yield return StartCoroutine(DealCardToPlayer(playerCard, player));
+                        yield return new WaitForSeconds(0.5f);
+                    }
+                }
+
+                // Deal dealer's cards based on round rules
+                int dealerCards = currentRound >= 2 ? GameParameters.INITIAL_CARDS_PER_PLAYER + 1 : GameParameters.INITIAL_CARDS_PER_PLAYER;
+                for (int i = 0; i < dealerCards; i++)
+                {
+                    var dealerCard = deck.DrawCard();
+                    if (dealerCard != null)
+                    {
+                        audioManager?.PlaySound(SoundType.Deal);
+                        bool shouldBeFaceDown = (currentRound == 1 && i != 0) || (currentRound >= 2 && i == dealerCards - 1);
+                        yield return StartCoroutine(DealCardToDealer(dealerCard, shouldBeFaceDown));
+                        yield return new WaitForSeconds(0.5f);
+                    }
+                }
+
+                audioManager?.PlaySound(SoundType.PlayerTurn);
+                yield return StartCoroutine(TransitionGameState(GameState.PlayerTurn));
+                uiManager?.UpdateUI();
+            }
+            finally
+            {
+                isDealing = false;
+            }
+        }
+
+        private IEnumerator DealCardToPlayer(Card card, Player targetPlayer)
+        {
+            if (card == null || dealer == null)
+            {
+                Debug.LogError("DealCardToPlayer: Invalid card or dealer reference");
+                yield break;
+            }
+
+            Transform slot = targetPlayer.GetNextAvailableSlot();
+            if (slot != null)
+            {
+                card.SetFaceDown(false); // Player cards are always face up
+                yield return StartCoroutine(dealer.DealCard(card, slot, false));
+                targetPlayer.AddCardToHand(card);
+                Debug.Log($"Dealt player card: {card.rank} of {card.suit}, FaceDown: {card.IsFaceDown()}");
+                uiManager?.UpdateUI();
+            }
+            else
+            {
+                Debug.LogError("No available slot found for player card");
+            }
+        }
+
+        private IEnumerator DealCardToDealer(Card card, bool forceFaceDown)
+        {
+            if (card == null || dealer == null)
+            {
+                Debug.LogError("DealCardToDealer: Invalid card or dealer reference");
+                yield break;
+            }
+
+            Transform slot = dealerPlayer.GetNextAvailableSlot();
+            if (slot != null)
+            {
+                card.SetFaceDown(forceFaceDown);
+                yield return StartCoroutine(dealer.DealCard(card, slot, forceFaceDown));
+                dealerPlayer.AddCardToHand(card);
+                Debug.Log($"Dealt dealer card: {card.rank} of {card.suit}, FaceDown: {forceFaceDown}, Round: {currentRound}");
+                uiManager?.UpdateUI();
+            }
+            else
+            {
+                Debug.LogError("No available slot found for dealer card");
+            }
+        }
+
+        private IEnumerator DealerPlayLoop()
+        {
+            while (dealerPlayer.ShouldHit())
+            {
+                uiManager?.ShowDealerPlaying();
+                yield return new WaitForSeconds(dealerPlayDelay);
+
+                Card card = deck.DrawCard();
+                if (card != null)
+                {
+                    yield return StartCoroutine(DealCardToDealer(card, false));
+                    yield return new WaitForSeconds(dealer.delayBetweenCards);
+
+                    int dealerScore = dealerPlayer.GetHandValue();
+                    if (dealerScore >= currentTargetScore)
+                    {
+                        yield return StartCoroutine(HandleEndGame(
+                            dealerScore == currentTargetScore ? "Dealer wins!" : "Dealer busted!"
+                        ));
+                        yield break;
+                    }
+                }
+
+                if (dealerPlayer.ShouldHit())
+                {
+                    uiManager?.ShowDealerThinking();
+                    yield return new WaitForSeconds(1f);
+                }
+            }
+
+            yield return new WaitForSeconds(dealerPlayDelay);
+            string endMessage = DetermineWinner(player.GetHandValue(), dealerPlayer.GetHandValue());
             yield return StartCoroutine(HandleEndGame(endMessage));
         }
 
-        private IEnumerator RandomizeNewTargetScore() {
-            isRandomizingTarget = true;
-            int min = currentRound == 2 ? round2MinTarget : round3MinTarget;
-            int max = currentRound == 2 ? round2MaxTarget : round3MaxTarget;
+        private IEnumerator FlipDealerCard()
+        {
+            if (dealerPlayer == null)
+                yield break;
 
-            // Initial delay for anticipation
-            yield return new WaitForSeconds(0.5f);
-            
-            // Dynamic randomization timing
-            float initialDelay = 0.15f; // Start faster
-            float maxDelay = randomizeDelay;
-            int iterations = randomizeTimes + 3; // Add more iterations for better effect
-            
-            int lastScore = currentTargetScore;
-            
-            for (int i = 0; i < iterations; i++) {
-                // Calculate dynamic delay that gets longer towards the end
-                float progress = (float)i / iterations;
-                float currentDelay = Mathf.Lerp(initialDelay, maxDelay, progress);
-                
-                int randomScore;
-                do {
-                    randomScore = Random.Range(min, max + 1);
-                } while (randomScore == lastScore); // Ensure we get a different number
-                
-                currentTargetScore = randomScore;
-                lastScore = randomScore;
-                
-                if (uiManager != null) {
-                    uiManager.UpdateTargetScore(currentTargetScore);
-                }
-                
-                // Play appropriate sound based on iteration
-                if (audioManager != null) {
-                    if (i < iterations - 1) {
-                        audioManager.PlayRandomTargetSound1();
-                    } else {
-                        // Final number sound
-                        audioManager.PlayRandomTargetSound2();
-                    }
-                }
-                
-                yield return new WaitForSeconds(currentDelay);
+            var dealerHand = dealerPlayer.GetHand();
+            int cardIndexToFlip = currentRound >= 2 ? 2 : 1;
+
+            if (dealerHand.Count <= cardIndexToFlip)
+            {
+                Debug.LogError($"Not enough dealer cards to flip. Cards: {dealerHand.Count}, Target: {cardIndexToFlip}");
+                yield break;
             }
-            
-            // Extra pause on final number for emphasis
-            yield return new WaitForSeconds(0.3f);
-            isRandomizingTarget = false;
+
+            audioManager?.PlaySound(SoundType.CardFlip);
+            Card cardToFlip = dealerHand[cardIndexToFlip];
+
+            if (cardToFlip != null)
+            {
+                cardToFlip.SetFaceDown(false);
+                yield return StartCoroutine(cardToFlip.FlipCard());
+                uiManager?.UpdateScores();
+                yield return new WaitForSeconds(GameParameters.CARD_FLIP_DURATION);
+            }
         }
 
-        public void SetGameState(GameState state) {
-            currentGameState = state;
+        #region Player Actions
+        public void OnPlayerHit()
+        {
+            if (currentGameState != GameState.PlayerTurn || isDealing)
+            {
+                Debug.Log($"Hit ignored - State: {currentGameState}, IsDealing: {isDealing}");
+                return;
+            }
+
+            Card card = deck.DrawCard();
+            if (card != null)
+            {
+                Debug.Log($"Drew card for hit: {card.rank} of {card.suit}");
+                SetPlayerButtonsInteractable(false);
+                isDealing = true;
+                card.SetFaceDown(false);
+                StartCoroutine(DealCardToSlot(card));
+            }
+            else
+            {
+                Debug.LogError("No card drawn from deck on hit!");
+            }
+        }
+
+        public void OnPlayerStand()
+        {
+            if (currentGameState != GameState.PlayerTurn || isDealing)
+                return;
+
+            SetPlayerButtonsInteractable(false);
+            StartCoroutine(ProcessDealerTurn());
+        }
+        #endregion
+
+        public void SetPlayerButtonsInteractable(bool interactable)
+        {
+            hitButton?.IsInteractable(interactable);
+            standButton?.IsInteractable(interactable);
+        }
+
+        public void PlayGoodMoveLine()
+        {
+            audioManager?.PlayRandomVoiceLine(audioManager.goodMoveVoiceClips);
+        }
+
+        public void PlayBadMoveLine()
+        {
+            audioManager?.PlayRandomVoiceLine(audioManager.badMoveVoiceClips);
         }
     }
 }

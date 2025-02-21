@@ -1,90 +1,68 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
+using System.Collections.Generic;
 
-namespace CardGame{
-    public class Deck : MonoBehaviour
-    {
-        private string prefix = "PlayingCards_";
+namespace CardGame {
+    public class Deck : MonoBehaviour {
         private List<Card> cards = new List<Card>();
-        
-        private void Start() {
-            for (int i = 0; i < transform.childCount; i++) {
-                // Get the card GameObject
-                GameObject cardObject = transform.GetChild(i).gameObject;
-                // Get the Card component if it exists; otherwise add it.
-                Card card = cardObject.GetComponent<Card>();
-                if(card == null)
-                    card = cardObject.AddComponent<Card>();
-                
-                string name = cardObject.name;
-                string cardName = name.Substring(prefix.Length);
+        private readonly string[] ranks = { "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A" };
+        private readonly string[] suits = { "Spades", "Hearts", "Diamonds", "Clubs" };
 
-                // Identify suit by checking known suffixes.
-                string suit = "";
-                // Updated candidate list with singular & plural forms.
-                string[] suitCandidates = new string[] { "Spades", "Hearts", "Heart", "Diamonds", "Diamond", "Clubs", "Club" };
-                string foundCandidate = "";
-                foreach(string candidate in suitCandidates){
-                    if(cardName.EndsWith(candidate)){
-                        foundCandidate = candidate;
-                        break;
-                    }
-                }
-                if(!string.IsNullOrEmpty(foundCandidate)){
-                    // Map to canonical suit names.
-                    if(foundCandidate == "Club" || foundCandidate == "Clubs")
-                        suit = "Clubs";
-                    else if(foundCandidate == "Heart" || foundCandidate == "Hearts")
-                        suit = "Hearts";
-                    else if(foundCandidate == "Diamond" || foundCandidate == "Diamonds")
-                        suit = "Diamonds";
-                    else if(foundCandidate == "Spade" || foundCandidate == "Spades")
-                        suit = "Spades";
-
-                    string rankPart = cardName.Substring(0, cardName.Length - foundCandidate.Length);
-                    switch(rankPart) {
-                        case "Q":
-                            card.rank = "Queen";
-                            break;
-                        case "K":
-                            card.rank = "King";
-                            break;
-                        case "J":
-                            card.rank = "Jack";
-                            break;
-                        case "A":
-                            card.rank = "Ace";
-                            break;
-                        default:
-                            card.rank = rankPart;
-                            break;
-                    }
-                } else {
-                    // Fallback: if no suit candidate found, assign full name as rank.
-                    card.rank = cardName;
-                }
-                card.suit = suit;
-                // Save Card instance instead of GameObject
-                cards.Add(card);
-            }
-            //PrintAllCardsInDeck();
+        void Awake() {
+            Debug.Log($"Deck Awake - Looking for cards under {gameObject.name}");
+            LoadCards();
         }
 
-        public void PrintAllCardsInDeck(){
-            foreach(Card card in cards){
-                print(card.rank + " of " + card.suit);
+        private void OnDestroy() {
+            // Clean up any remaining cards
+            foreach (Card card in cards) {
+                if (card != null && card.gameObject != null) {
+                    Destroy(card.gameObject);
+                }
             }
+            cards.Clear();
         }
 
-        public void ShuffleDeck() {
-            int n = cards.Count;
-            while (n > 1) {
-                n--;
-                int k = Random.Range(0, n + 1);
-                Card temp = cards[k];
-                cards[k] = cards[n];
-                cards[n] = temp;
+        private void LoadCards() {
+            // Clear existing cards
+            foreach (Card card in cards) {
+                if (card != null && card.gameObject != null) {
+                    Destroy(card.gameObject);
+                }
+            }
+            cards.Clear();
+
+            // Find all potential card objects under this deck by name pattern
+            Transform[] allChildren = GetComponentsInChildren<Transform>(true);
+            Dictionary<string, bool> uniqueCards = new Dictionary<string, bool>();
+
+            foreach (Transform child in allChildren) {
+                if (child.name.StartsWith("PlayingCards_")) {
+                    // Check for duplicate cards
+                    if (uniqueCards.ContainsKey(child.name)) {
+                        Debug.LogError($"Duplicate card found: {child.name}");
+                        continue;
+                    }
+                    uniqueCards[child.name] = true;
+
+                    Card card = child.GetComponent<Card>();
+                    if (card == null) {
+                        card = child.gameObject.AddComponent<Card>();
+                        Debug.Log($"Added Card component to {child.name}");
+                    }
+                    cards.Add(card);
+                    card.SetFaceDown(true);
+                    card.InitializeCard();
+                    Debug.Log($"Added card {child.name} to deck");
+                }
+            }
+
+            if (cards.Count == 0) {
+                Debug.LogError("No cards found in deck! Make sure cards are named PlayingCards_[Rank][Suit]");
+            } else if (cards.Count != 52) {
+                Debug.LogWarning($"Unexpected number of cards in deck: {cards.Count}. Standard deck should have 52 cards.");
+            } else {
+                Debug.Log($"Loaded {cards.Count} cards into deck");
+                ShuffleDeck();
             }
         }
 
@@ -95,6 +73,50 @@ namespace CardGame{
                 return card;
             }
             return null;
+        }
+
+        public Card DrawCard() {
+            return DealNextCard();
+        }
+
+        public void ReturnCard(Card card) {
+            if (card != null && !cards.Contains(card)) {
+                cards.Add(card);
+                card.transform.SetParent(transform);
+            }
+        }
+
+        public void ShuffleDeck() {
+            if (cards.Count == 0) {
+                Debug.LogWarning("Attempted to shuffle empty deck");
+                return;
+            }
+
+            // Fisher-Yates shuffle algorithm
+            int n = cards.Count;
+            while (n > 1) {
+                n--;
+                int k = Random.Range(0, n + 1);
+                Card temp = cards[k];
+                cards[k] = cards[n];
+                cards[n] = temp;
+            }
+
+            // Validate shuffle
+            HashSet<string> seenCards = new HashSet<string>();
+            foreach (Card card in cards) {
+                if (card == null) {
+                    Debug.LogError("Null card found in deck after shuffle!");
+                    continue;
+                }
+                string cardKey = $"{card.rank}_{card.suit}";
+                if (seenCards.Contains(cardKey)) {
+                    Debug.LogError($"Duplicate card found after shuffle: {cardKey}");
+                }
+                seenCards.Add(cardKey);
+            }
+
+            Debug.Log($"Deck shuffled. {cards.Count} cards verified.");
         }
     }
 }
