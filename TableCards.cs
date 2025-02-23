@@ -117,11 +117,10 @@ namespace CardGame {
         public void ResetAllSlots() {
             foreach (var slot in playerCardSlots.Concat(dealerCardSlots)) {
                 if (slot.SlotTransform != null) {
-                    for (int i = slot.SlotTransform.childCount - 1; i >= 0; i--) {
-                        var card = slot.SlotTransform.GetChild(i);
-                        if (card != null) {
-                            Destroy(card.gameObject);
-                        }
+                    // Only remove child transforms, don't destroy them since they'll be returned to deck
+                    while (slot.SlotTransform.childCount > 0) {
+                        var cardTransform = slot.SlotTransform.GetChild(0);
+                        cardTransform.SetParent(null);
                     }
                 }
             }

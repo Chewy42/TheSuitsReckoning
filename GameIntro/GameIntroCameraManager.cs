@@ -5,7 +5,7 @@ using UnityEngine;
 public class GameIntroCameraManager : MonoBehaviour
 {
     [SerializeField]
-    private new Camera camera; // Add 'new' keyword to explicitly hide the inherited member
+    private Camera camera;
 
     [SerializeField] 
     private Vector3 targetPosition;

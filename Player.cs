@@ -14,35 +14,52 @@ namespace CardGame {
 
         void Awake()
         {
+            // Don't reset slots in Awake, wait for Start
+            Debug.Log($"Player {playerType} initialized");
+        }
+
+        void Start()
+        {
+            // Reset slots in Start after everything is initialized
             ResetSlots();
-            Debug.Log($"Player {playerType} initialized - Slots: {cardSlots.Count}");
+            Debug.Log($"Player {playerType} slots initialized - Slots: {cardSlots.Count}");
         }
 
         public virtual int GetHandValue() {
             var gameManager = FindFirstObjectByType<GameManager>();
             int targetScore = gameManager?.GetCurrentTargetScore() ?? 21;
             int value = 0;
-            int aces = 0;
+            int numberOfAces = 0;
 
+            // First pass: Count aces and sum up all other cards
             foreach (Card card in hand.Where(c => c != null && !c.IsFaceDown())) {
-                value += GetCardValue(card.rank, ref aces);
+                if (IsAce(card.rank)) {
+                    numberOfAces++;
+                    value += 11; // Start with all Aces as 11
+                } else {
+                    value += GetCardValue(card.rank);
+                }
             }
 
-            // Optimize aces
-            while (value > targetScore && aces > 0) {
+            // Convert Aces from 11 to 1 whenever we would bust
+            while (value > targetScore && numberOfAces > 0) {
                 value -= 10;  // Convert an ace from 11 to 1
-                aces--;
+                numberOfAces--;
+                Debug.Log($"Converting Ace to 1 to prevent bust. New hand value: {value}");
             }
 
             return value;
         }
 
-        private int GetCardValue(string rank, ref int aces) {
+        private bool IsAce(string rank) {
+            return rank.ToUpper() == "ACE" || rank.ToUpper() == "A";
+        }
+
+        private int GetCardValue(string rank) {
             switch(rank.ToUpper()) {
                 case "ACE":
                 case "A":
-                    aces++;
-                    return 11;
+                    return 11; // Default Ace value, GetHandValue handles conversion to 1 if needed
                 case "KING":
                 case "K":
                 case "QUEEN":
@@ -73,7 +90,7 @@ namespace CardGame {
         public void ClearHand() {
             foreach (Card card in hand) {
                 if (card != null && card.gameObject != null) {
-                    card.transform.SetParent(null);
+                    GameManager.Instance.ReturnCardToDeck(card);
                 }
             }
             hand.Clear();
@@ -88,20 +105,25 @@ namespace CardGame {
                 Debug.LogError($"No card slots assigned for {playerType}");
                 return null;
             }
-
-            // Safety check for slot index
+    
+            // If no available slot, reuse the oldest slot by clearing its children
             if (nextSlotIndex >= cardSlots.Count) {
-                Debug.LogWarning($"No more slots available for {playerType}");
-                return null;
+                Debug.LogWarning($"No more slots available for {playerType}. Reusing the oldest slot.");
+                Transform oldestSlot = cardSlots[0];
+                for (int i = oldestSlot.childCount - 1; i >= 0; i--) {
+                    Destroy(oldestSlot.GetChild(i).gameObject);
+                }
+                nextSlotIndex = 1;
+                return oldestSlot;
             }
-
+    
             // Get the next sequential slot
             Transform nextSlot = cardSlots[nextSlotIndex];
             if (nextSlot == null) {
                 Debug.LogError($"Slot {nextSlotIndex} is null for {playerType}");
                 return null;
             }
-
+    
             nextSlotIndex++;
             return nextSlot;
         }

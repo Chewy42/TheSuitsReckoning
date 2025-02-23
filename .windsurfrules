@@ -1,2 +1,3 @@
 1. Never make new files, only edit existing ones.
 2. Always consider the flow of logic to ensure the start meets the end.
+3. Always gather full context on the flow of logic surrounding the issue, before implementing a code solution.

@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections;
 using System.Collections.Generic;
 
 namespace CardGame {
@@ -22,7 +23,7 @@ namespace CardGame {
             cards.Clear();
         }
 
-        private void LoadCards() {
+        protected void LoadCards() {
             // Clear existing cards
             foreach (Card card in cards) {
                 if (card != null && card.gameObject != null) {
@@ -79,11 +80,21 @@ namespace CardGame {
             return DealNextCard();
         }
 
-        public void ReturnCard(Card card) {
+        public System.Collections.IEnumerator ReturnCard(Card card) {
             if (card != null && !cards.Contains(card)) {
                 cards.Add(card);
+                // Reset card position and state
                 card.transform.SetParent(transform);
+                yield return card.ReturnToDeck(transform.position);
+                card.SetFaceDown(true);
+                card.gameObject.SetActive(true);
+                Debug.Log($"Card {card.name} returned to deck at position {card.transform.position}");
             }
+        }
+
+        public void ReloadAndShuffle() {
+            LoadCards();
+            ShuffleDeck();
         }
 
         public void ShuffleDeck() {

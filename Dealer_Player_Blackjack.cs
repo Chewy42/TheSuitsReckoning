@@ -24,6 +24,13 @@ namespace CardGame
 
             Debug.Log($"Dealer deciding to hit - Round: {currentRound}, Current: {currentScore}, Target: {targetScore}, Player: {playerScore}");
 
+            // Check if dealer has already won
+            if (currentScore <= targetScore && (currentScore > playerScore || currentScore == playerScore))
+            {
+                Debug.Log($"Dealer already won with {currentScore} vs player's {playerScore} - stands");
+                return false;
+            }
+
             if (playerScore > targetScore)
             {
                 Debug.Log("Player busted - dealer stands");
@@ -64,62 +71,47 @@ namespace CardGame
 
         public override int GetHandValue()
         {
-            if (gameManager == null)
+            int value = 0;
+            int numberOfAces = 0;
+            var gameManager = FindFirstObjectByType<GameManager>();
+            int targetScore = gameManager != null ? gameManager.GetCurrentTargetScore() : 21;
+
+            var visibleCards = hand.Where(card => card != null && !card.IsFaceDown())
+                                 .ToList();
+
+            // First pass: count non-ace cards and identify aces
+            foreach (Card card in visibleCards)
             {
-                gameManager = FindFirstObjectByType<GameManager>();
-            }
-
-            int targetScore = gameManager?.GetCurrentTargetScore() ?? 21;
-            int currentRound = gameManager?.GetCurrentRound() ?? 1;
-            GameState currentState = gameManager?.GetCurrentGameState() ?? GameState.Initializing;
-            
-            // During player turn, only count visible cards based on current round
-            if (currentState == GameState.PlayerTurn)
-            {
-                int value = 0;
-                int aces = 0;
-                int visibleCardCount = currentRound == 1 ? 1 : 2;
-
-                var visibleCards = hand.Take(visibleCardCount)
-                                     .Where(card => card != null && !card.IsFaceDown())
-                                     .ToList();
-
-                Debug.Log($"Dealer scoring visible cards - Round: {currentRound}, State: {currentState}, Visible cards: {visibleCards.Count}");
-
-                foreach (Card card in visibleCards.OrderBy(c => c.rank != "Ace"))
+                string cardRank = card.rank.ToUpper().Trim();
+                
+                if (cardRank == "A" || cardRank == "ACE")
                 {
-                    if (card.rank.ToUpper() == "ACE")
-                    {
-                        aces++;
-                        value += 11;
-                    }
-                    else if (new[] { "KING", "QUEEN", "JACK" }.Contains(card.rank.ToUpper()))
-                    {
-                        value += 10;
-                    }
-                    else if (int.TryParse(card.rank, out int rankValue))
-                    {
-                        value += rankValue;
-                    }
-                    else
-                    {
-                        Debug.LogWarning($"Unable to parse dealer card rank: {card.rank}, assuming 10");
-                        value += 10;
-                    }
-
-                    while (value > targetScore && aces > 0)
-                    {
-                        value -= 10;
-                        aces--;
-                    }
+                    numberOfAces++;
+                    value += 11;
                 }
-
-                Debug.Log($"Dealer visible score: {value} (Round {currentRound})");
-                return value;
+                else if (new[] { "K", "KING", "Q", "QUEEN", "J", "JACK" }.Contains(cardRank))
+                {
+                    value += 10;
+                }
+                else if (int.TryParse(cardRank, out int rankValue))
+                {
+                    value += rankValue;
+                }
+                else
+                {
+                    Debug.LogWarning($"Unable to parse card rank: {cardRank}, assuming 10");
+                    value += 10;
+                }
             }
-            
-            // During dealer's turn or game end, count all cards
-            return base.GetHandValue();
+
+            // Handle aces optimally
+            while (value > targetScore && numberOfAces > 0)
+            {
+                value -= 10;  // Convert an ace from 11 to 1
+                numberOfAces--;
+            }
+
+            return value;
         }
     }
 }

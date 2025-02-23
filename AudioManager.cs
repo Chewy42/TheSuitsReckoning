@@ -32,7 +32,7 @@ namespace CardGame
         public AudioClip randomizeSound1;
         public AudioClip randomizeSound2;
         public AudioClip roundStartSound;
-        public float roundStartSoundDelay = 0.5f;
+        public float roundStartSoundDelay = 0.3f;
 
         [Header("Game Status")]
         public AudioClip[] winVoiceLines;
@@ -46,15 +46,13 @@ namespace CardGame
         public AudioClip[] badMoveVoiceClips;
         public AudioClip shockedVoiceLine;
 
-        [Range(0.8f, 1.2f)]
-        public float voicePitchVariation = GameParameters.VOICE_PITCH_VARIATION;
-
-        [Header("Generic Voice Line Settings")]
-        [Tooltip("Minimum time between random generic voice lines (in seconds)")]
-        public float minGenericVoiceLineInterval = GameParameters.MIN_GENERIC_VOICE_LINE_INTERVAL;
-
-        [Tooltip("Maximum time between random generic voice lines (in seconds)")]
-        public float maxGenericVoiceLineInterval = GameParameters.MAX_GENERIC_VOICE_LINE_INTERVAL;
+        [Header("Audio Settings")]
+        [Range(0f, 1f)] public float cardSoundVolume = 0.7f;
+        [Range(0f, 1f)] public float voiceLineVolume = 1f;
+        private const float MIN_SOUND_INTERVAL = 0.05f;
+        private const float MIN_VOICE_LINE_INTERVAL = 0.3f;
+        private float minGenericVoiceLineInterval = GameParameters.MIN_GENERIC_VOICE_LINE_INTERVAL;
+        private float maxGenericVoiceLineInterval = GameParameters.MAX_GENERIC_VOICE_LINE_INTERVAL;
         private float nextGenericVoiceLineTime;
 
         private AudioSource audioSource;
@@ -65,10 +63,10 @@ namespace CardGame
 
         private Dictionary<SoundType, float> lastPlayTimes = new Dictionary<SoundType, float>();
         private Dictionary<AudioClip, float> lastVoiceLineTimes = new Dictionary<AudioClip, float>();
-        private const float MIN_SOUND_INTERVAL = 0.1f;
-        private const float MIN_VOICE_LINE_INTERVAL = 0.5f;
         private Queue<AudioClip> voiceLineQueue = new Queue<AudioClip>();
-        private bool isProcessingVoiceQueue = false;
+        private Queue<(AudioClip clip, float delay)> soundQueue = new Queue<(AudioClip clip, float delay)>();
+
+        private List<AudioSource> additionalAudioSources = new List<AudioSource>();
 
         void Start()
         {
@@ -104,73 +102,67 @@ namespace CardGame
 
         public void PlayDealSound()
         {
-            if (dealSound != null && audioSource != null)
+            if (dealSound != null)
             {
-                audioSource.PlayOneShot(dealSound);
+                QueueSound(dealSound);
             }
         }
 
         public void PlayCardReturnSound()
         {
-            if (cardReturnSound != null && audioSource != null)
+            if (cardReturnSound != null)
             {
-                audioSource.PlayOneShot(cardReturnSound);
+                QueueSound(cardReturnSound);
             }
         }
 
         public void PlayCardFlipSound()
         {
-            if (cardFlipSound != null && audioSource != null)
+            if (cardFlipSound != null)
             {
-                audioSource.PlayOneShot(cardFlipSound);
+                QueueSound(cardFlipSound);
             }
         }
 
         public void PlayDealerThinkingSound()
         {
-            if (
-                dealerThinkingSounds != null
-                && dealerThinkingSounds.Length > 0
-                && audioSource != null
-            )
+            if (dealerThinkingSounds != null && dealerThinkingSounds.Length > 0)
             {
-                audioSource.PlayOneShot(
-                    dealerThinkingSounds[Random.Range(0, dealerThinkingSounds.Length)]
-                );
+                QueueSound(dealerThinkingSounds[Random.Range(0, dealerThinkingSounds.Length)]);
             }
         }
 
         public void PlayRandomTargetSound1()
         {
-            if (randomizeSound1 != null && audioSource != null)
+            if (randomizeSound1 != null)
             {
-                audioSource.PlayOneShot(randomizeSound1);
+                QueueSound(randomizeSound1);
             }
         }
 
         public void PlayRandomTargetSound2()
         {
-            if (randomizeSound2 != null && audioSource != null)
+            if (randomizeSound2 != null)
             {
-                audioSource.PlayOneShot(randomizeSound2);
+                QueueSound(randomizeSound2);
             }
         }
 
         public void PlayWinVoiceLine()
         {
-            if (winVoiceLines != null && winVoiceLines.Length > 0 && audioSource != null)
+            if (winVoiceLines != null && winVoiceLines.Length > 0)
             {
-                currentVoiceLine = winVoiceLines[Random.Range(0, winVoiceLines.Length)];
-                audioSource.PlayOneShot(currentVoiceLine);
+                AudioClip selectedClip = winVoiceLines[Random.Range(0, winVoiceLines.Length)];
+                PlayVoiceLine(selectedClip);
             }
         }
 
         public void PlayLoseVoiceLine()
         {
-            if (loseVoiceLines != null && loseVoiceLines.Length > 0 && audioSource != null)
+            if (loseVoiceLines != null && loseVoiceLines.Length > 0)
             {
-                currentVoiceLine = loseVoiceLines[Random.Range(0, loseVoiceLines.Length)];
-                audioSource.PlayOneShot(currentVoiceLine);
+                AudioClip selectedClip = loseVoiceLines[Random.Range(0, loseVoiceLines.Length)];
+                PlayVoiceLine(selectedClip);
             }
         }
 
@@ -203,32 +195,41 @@ namespace CardGame
             }
         }
 
-        private IEnumerator ProcessVoiceLineQueue()
+        private IEnumerator ProcessVoiceQueue()
         {
-            if (isProcessingVoiceQueue) yield break;
-            
-            isProcessingVoiceQueue = true;
             while (voiceLineQueue.Count > 0)
             {
-                AudioClip nextClip = voiceLineQueue.Dequeue();
-                if (nextClip != null)
+                var clip = voiceLineQueue.Dequeue();
+                if (clip != null && !voiceSource.isPlaying)
                 {
-                    // Check if enough time has passed since this voice line was last played
-                    if (!lastVoiceLineTimes.ContainsKey(nextClip) || 
-                        Time.time - lastVoiceLineTimes[nextClip] >= MIN_VOICE_LINE_INTERVAL)
-                    {
-                        currentVoiceLine = nextClip;
-                        voiceSource.pitch = 1f + Random.Range(-voicePitchVariation, voicePitchVariation);
-                        voiceSource.PlayOneShot(nextClip);
-                        lastVoiceLineTimes[nextClip] = Time.time;
-                        
-                        // Wait for clip to finish
-                        yield return new WaitForSeconds(nextClip.length);
-                    }
+                    voiceSource.volume = voiceLineVolume;
+                    voiceSource.clip = clip;
+                    voiceSource.Play();
+                    yield return new WaitForSeconds(clip.length);
                 }
-                yield return new WaitForSeconds(0.1f);
             }
-            isProcessingVoiceQueue = false;
+        }
+
+        private IEnumerator ProcessSoundQueue()
+        {
+            while (soundQueue.Count > 0)
+            {
+                var (clip, delay) = soundQueue.Dequeue();
+                if (clip != null)
+                {
+                    audioSource.volume = cardSoundVolume;
+                    audioSource.PlayOneShot(clip);
+                    yield return new WaitForSeconds(delay);
+                }
+            }
+        }
+
+        private void QueueSound(AudioClip clip, float delay = 0f)
+        {
+            if (clip == null || audioSource == null) return;
+            
+            soundQueue.Enqueue((clip, delay));
+            StartCoroutine(ProcessSoundQueue());
         }
 
         public void PlayVoiceLine(AudioClip voiceClip)
@@ -236,7 +237,7 @@ namespace CardGame
             if (voiceClip == null || voiceSource == null) return;
             
             voiceLineQueue.Enqueue(voiceClip);
-            StartCoroutine(ProcessVoiceLineQueue());
+            StartCoroutine(ProcessVoiceQueue());
         }
 
         public void PlayRandomGenericVoiceLine()
@@ -278,37 +279,43 @@ namespace CardGame
                 switch (soundType)
                 {
                     case SoundType.Deal:
-                        PlayDealSound();
+                        QueueSound(dealSound);
+                        break;
+                    case SoundType.CardDeal:
+                        QueueSound(dealSound);
                         break;
                     case SoundType.CardReturn:
-                        PlayCardReturnSound();
+                        QueueSound(cardReturnSound);
                         break;
                     case SoundType.CardFlip:
-                        PlayCardFlipSound();
+                        QueueSound(cardFlipSound);
                         break;
                     case SoundType.Shuffle:
                         StartCoroutine(PlayShuffleSounds());
                         break;
                     case SoundType.RandomizeTarget1:
-                        PlayRandomTargetSound1();
+                        QueueSound(randomizeSound1);
                         break;
                     case SoundType.RandomizeTarget2:
-                        PlayRandomTargetSound2();
+                        QueueSound(randomizeSound2);
                         break;
                     case SoundType.RoundStart:
-                        if (roundStartSound != null && audioSource != null)
+                        if (roundStartSound != null)
                         {
-                            audioSource.PlayOneShot(roundStartSound);
+                            QueueSound(roundStartSound, roundStartSoundDelay);
                         }
                         break;
                     case SoundType.PlayerTurn:
-                        if (playerTurnSound != null && audioSource != null)
+                        if (playerTurnSound != null)
                         {
-                            audioSource.PlayOneShot(playerTurnSound);
+                            QueueSound(playerTurnSound);
                         }
                         break;
                     case SoundType.DealerThinking:
-                        PlayDealerThinkingSound();
+                        if (dealerThinkingSounds != null && dealerThinkingSounds.Length > 0)
+                        {
+                            QueueSound(dealerThinkingSounds[Random.Range(0, dealerThinkingSounds.Length)]);
+                        }
                         break;
                     case SoundType.Win:
                         PlayWinVoiceLine();
@@ -329,16 +336,14 @@ namespace CardGame
             if (audioSource != null)
             {
                 audioSource.Stop();
-                audioSource.pitch = 1f;
             }
-            if (voiceSource != null)
+            foreach (var source in additionalAudioSources)
             {
-                voiceSource.Stop();
-                voiceSource.pitch = 1f;
+                if (source != null)
+                {
+                    source.Stop();
+                }
             }
-            voiceLineQueue.Clear();
-            isProcessingVoiceQueue = false;
-            currentVoiceLine = null;
         }
 
         private void OnDisable()

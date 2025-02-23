@@ -2,13 +2,13 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using static UnityEngine.Object;
-using CardGame;  // Add this to get access to GameState enum
+using CardGame;
 
 public class PlayerInteraction : MonoBehaviour {
     // Current hovered card reference
-    private CardGame.Card currentHoveredCard = null;
-    private Dictionary<CardGame.Card, Material> originalMaterials = new Dictionary<CardGame.Card, Material>();
-    private CardGame.GameManager gameManager;
+    private Card currentHoveredCard = null;
+    private Dictionary<Card, Material> originalMaterials = new Dictionary<Card, Material>();
+    private GameManager gameManager;
     
     // How far to raycast
     public float rayDistance = 100f;
@@ -31,92 +31,104 @@ public class PlayerInteraction : MonoBehaviour {
         originalMaterials.Clear();
     }
 
-    // Start is called before the first frame update
     void Start()
     {
-        gameManager = FindFirstObjectByType<CardGame.GameManager>();
+        gameManager = FindFirstObjectByType<GameManager>();
     }
 
     void Update()
     {
+        if (gameManager == null)
+        {
+            ClearHoverState();
+            return;
+        }
+
         // Get current game state early to avoid multiple calls
-        var currentState = gameManager?.GetCurrentGameState() ?? GameState.Initializing;
+        GameState currentState = gameManager.GetCurrentGameState();
         
         // Enhanced state check for interactions
-        if (gameManager == null || 
-            currentState == GameState.Initializing ||
-            currentState == GameState.GameOver ||
-            currentState == GameState.Intermission ||
-            currentState == GameState.DealerTurn ||
-            gameManager.IsDealing() ||
-            gameManager.IsReturnOrRandomizing()) {
-            
-            if (currentHoveredCard != null) {
-                SetCardFade(currentHoveredCard);
-                currentHoveredCard = null;
-            }
+        bool shouldDisableInteraction = currentState == GameState.Initializing ||
+                                      currentState == GameState.GameOver ||
+                                      currentState == GameState.Intermission ||
+                                      currentState == GameState.DealerTurn ||
+                                      gameManager.IsDealing() ||
+                                      gameManager.IsReturnOrRandomizing();
+        
+        if (shouldDisableInteraction)
+        {
+            ClearHoverState();
             return;
         }
 
         // Only allow interaction during player's turn and when not dealing
-        if (currentState != GameState.PlayerTurn) {
+        if (currentState != GameState.PlayerTurn)
+        {
+            ClearHoverState();
             return;
         }
 
+        HandleCardHover();
+    }
+
+    private void HandleCardHover()
+    {
         Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
-        RaycastHit hit;
-        
-        if (Physics.Raycast(ray, out hit, rayDistance)) {
-            CardGame.Card hitCard = hit.collider.GetComponent<CardGame.Card>();
+        if (Physics.Raycast(ray, out RaycastHit hit, rayDistance))
+        {
+            Card hitCard = hit.collider.GetComponent<Card>();
             
-            // Only allow hovering over player's own cards
-            if (hitCard != null && hitCard.transform.parent != null) {
+            if (hitCard != null && hitCard.transform.parent != null)
+            {
                 bool isPlayerCard = hitCard.transform.parent.name.StartsWith("PlayerCardSlot_");
                 
-                if (isPlayerCard) {
-                    if (currentHoveredCard != hitCard) {
-                        if (currentHoveredCard != null)
-                            SetCardFade(currentHoveredCard);
-                        
+                if (isPlayerCard)
+                {
+                    if (currentHoveredCard != hitCard)
+                    {
+                        ClearHoverState();
                         currentHoveredCard = hitCard;
                         SetCardTransparent(currentHoveredCard);
                     }
-                } else {
-                    if (currentHoveredCard != null) {
-                        SetCardFade(currentHoveredCard);
-                        currentHoveredCard = null;
-                    }
                 }
-            } else {
-                if (currentHoveredCard != null) {
-                    SetCardFade(currentHoveredCard);
-                    currentHoveredCard = null;
+                else
+                {
+                    ClearHoverState();
                 }
             }
-        } else {
-            if (currentHoveredCard != null) {
-                SetCardFade(currentHoveredCard);
-                currentHoveredCard = null;
+            else
+            {
+                ClearHoverState();
             }
+        }
+        else
+        {
+            ClearHoverState();
         }
     }
 
-    private void OnEnable() {
-        // Clear any lingering effects when enabled
-        if (currentHoveredCard != null) {
+    private void ClearHoverState()
+    {
+        if (currentHoveredCard != null)
+        {
             SetCardFade(currentHoveredCard);
             currentHoveredCard = null;
         }
     }
+
+    private void OnEnable()
+    {
+        ClearHoverState();
+    }
     
-    // Set card rendering to transparent (e.g., reduce alpha)
-    private void SetCardTransparent(CardGame.Card card)
+    private void SetCardTransparent(Card card)
     {
         Renderer rend = card.gameObject.GetComponent<Renderer>();
         if (rend != null)
         {
             // Store original material if we haven't already
-            if (!originalMaterials.ContainsKey(card)) {
+            if (!originalMaterials.ContainsKey(card))
+            {
                 originalMaterials[card] = rend.material;
             }
 
@@ -124,7 +136,8 @@ public class PlayerInteraction : MonoBehaviour {
             rend.material = new Material(originalMaterials[card]);
             
             // Set shader to Standard if supported and set transparent mode
-            if (rend.material.shader.name == "Standard") {
+            if (rend.material.shader.name == "Standard")
+            {
                 rend.material.SetFloat("_Mode", 3);
                 rend.material.DisableKeyword("_ALPHATEST_ON");
                 rend.material.EnableKeyword("_ALPHABLEND_ON");
@@ -137,23 +150,15 @@ public class PlayerInteraction : MonoBehaviour {
         }
     }
     
-    // Reset card rendering back to opaque
-    private void SetCardFade(CardGame.Card card)
+    private void SetCardFade(Card card)
     {
         Renderer rend = card.gameObject.GetComponent<Renderer>();
-        if (rend != null)
+        if (rend != null && originalMaterials.ContainsKey(card))
         {
-            // Restore original material if we have it
-            if (originalMaterials.ContainsKey(card)) {
-                rend.material = originalMaterials[card];
-                originalMaterials.Remove(card);
-            }
+            rend.material = originalMaterials[card];
+            originalMaterials.Remove(card);
         }
     }
 
-    // Getter for currentHoveredCard
-    public CardGame.Card GetHoveredCard()
-    {
-        return currentHoveredCard;
-    }
+    public Card GetHoveredCard() => currentHoveredCard;
 }

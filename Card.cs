@@ -43,70 +43,73 @@ namespace CardGame {
             }
         }
 
-        public IEnumerator FlipCard() {
-            if (isBeingFlipped) {
-                Debug.LogWarning($"Card {gameObject.name} is already being flipped, ignoring request");
-                yield break;
+        public IEnumerator MoveToPosition(Vector3 targetPosition, bool useWorldSpace = true)
+        {
+            Vector3 startPosition = useWorldSpace ? transform.position : transform.localPosition;
+            float elapsed = 0f;
+            
+            while (elapsed < GameParameters.CARD_MOVE_DURATION)
+            {
+                float t = elapsed / GameParameters.CARD_MOVE_DURATION;
+                if (useWorldSpace)
+                    transform.position = Vector3.Lerp(startPosition, targetPosition, t);
+                else
+                    transform.localPosition = Vector3.Lerp(startPosition, targetPosition, t);
+                
+                elapsed += Time.deltaTime;
+                yield return null;
             }
 
-            isBeingFlipped = true;
-            float flipDuration = GameParameters.CARD_FLIP_DURATION;
-            float elapsedTime = 0f;
-            Vector3 originalScale = transform.localScale;
+            if (useWorldSpace)
+                transform.position = targetPosition;
+            else
+                transform.localPosition = targetPosition;
+        }
+
+        public IEnumerator ReturnToDeck(Vector3 deckPosition)
+        {
+            Vector3 startPosition = transform.position;
+            float elapsed = 0f;
             
-            try {
-                // First half of flip
-                while (elapsedTime < flipDuration / 2) {
-                    elapsedTime += Time.deltaTime;
-                    float t = elapsedTime / (flipDuration / 2);
-                    float smoothT = t * t * (3f - 2f * t); // Smooth easing
-                    
-                    float scaleX = Mathf.Lerp(1f, 0f, smoothT);
-                    transform.localScale = new Vector3(scaleX, originalScale.y, originalScale.z);
-                    
-                    yield return null;
-                }
-                
-                // Change face state at the midpoint
-                isFaceDown = !isFaceDown;
-                transform.rotation = Quaternion.Euler(isFaceDown ? 90f : -90f, 0f, 0f);
-                
-                // Second half of flip
-                while (elapsedTime < flipDuration) {
-                    elapsedTime += Time.deltaTime;
-                    float t = (elapsedTime - flipDuration / 2) / (flipDuration / 2);
-                    float smoothT = t * t * (3f - 2f * t); // Smooth easing
-                    
-                    float scaleX = Mathf.Lerp(0f, 1f, smoothT);
-                    transform.localScale = new Vector3(scaleX, originalScale.y, originalScale.z);
-                    
-                    yield return null;
-                }
-                
-                // Ensure final state is exact
-                transform.rotation = Quaternion.Euler(isFaceDown ? 90f : -90f, 0f, 0f);
-                transform.localScale = originalScale;
-                
-                // Small bounce effect
-                Vector3 startPos = transform.position;
-                Vector3 bouncePos = startPos + Vector3.up * 0.05f;
-                
-                float bounceTime = 0f;
-                float bounceDuration = 0.1f;
-                
-                while (bounceTime < bounceDuration) {
-                    bounceTime += Time.deltaTime;
-                    float t = bounceTime / bounceDuration;
-                    float smoothT = 1f - ((1f - t) * (1f - t)); // Smooth out
-                    transform.position = Vector3.Lerp(startPos, bouncePos, smoothT);
-                    yield return null;
-                }
-                
-                transform.position = startPos;
+            while (elapsed < GameParameters.CARD_RETURN_DURATION)
+            {
+                float t = elapsed / GameParameters.CARD_RETURN_DURATION;
+                transform.position = Vector3.Lerp(startPosition, deckPosition, t);
+                elapsed += Time.deltaTime;
+                yield return null;
             }
-            finally {
-                isBeingFlipped = false;
+
+            transform.position = deckPosition;
+        }
+
+        public IEnumerator FlipCard(bool instant = false)
+        {
+            if (isBeingFlipped) yield break;
+            isBeingFlipped = true;
+
+            Quaternion startRotation = transform.rotation;
+            Quaternion endRotation = Quaternion.Euler(new Vector3(isFaceDown ? -90f : 90f, 0f, 0f));
+            
+            if (instant)
+            {
+                transform.rotation = endRotation;
             }
+            else
+            {
+                float elapsed = 0f;
+                
+                while (elapsed < GameParameters.CARD_FLIP_DURATION)
+                {
+                    float t = elapsed / GameParameters.CARD_FLIP_DURATION;
+                    transform.rotation = Quaternion.Slerp(startRotation, endRotation, t);
+                    elapsed += Time.deltaTime;
+                    yield return null;
+                }
+                transform.rotation = endRotation;
+            }
+
+            isFaceDown = !isFaceDown;
+            isBeingFlipped = false;
         }
 
         public void OnDestroy() {
@@ -116,9 +119,35 @@ namespace CardGame {
             }
         }
 
-        public void SetFaceDown(bool faceDown) {
+        public void SetFaceDown(bool faceDown)
+        {
             isFaceDown = faceDown;
-            transform.rotation = Quaternion.Euler(faceDown ? 90f : -90f, 0f, 0f);
+            transform.rotation = Quaternion.Euler(new Vector3(faceDown ? 90f : -90f, 0f, 0f));
+        }
+
+        public void ResetState() {
+            if (transform != null) {
+                // Reset position and rotation relative to parent
+                transform.localPosition = Vector3.zero;
+                transform.localRotation = Quaternion.Euler(GameParameters.FACE_DOWN_X_ROTATION, 0f, 0f);
+            }
+            isFaceDown = true;
+        }
+
+        void OnTransformParentChanged() {
+            if (transform.parent == null) {
+                // Card has been detached, maintain world position/rotation
+                return;
+            }
+            
+            if (transform.parent.GetComponent<Deck>() != null) {
+                // Card is being returned to deck, ensure proper positioning
+                ResetState();
+            }
+        }
+
+        private void OnEnable() {
+            ResetState();
         }
 
         public bool IsFaceDown() {

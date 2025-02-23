@@ -1,5 +1,6 @@
 using UnityEngine;
 using static UnityEngine.Object;
+using System.Linq;
 
 namespace CardGame
 {
@@ -10,27 +11,17 @@ namespace CardGame
             playerType = PlayerType.Player;
         }
 
-        private int CalculateAceValue(int currentTotal, int targetScore, int remainingAces)
-        {
-            if (remainingAces == 0 || currentTotal > targetScore) {
-                return currentTotal;
-            }
+        private bool isHitting = false;
 
-            // Try using current ace as 1 instead of 11
-            int valueAs1 = currentTotal - 10;
-            
-            // If using 1 puts us at or under target with remaining aces, recurse
-            if (valueAs1 <= targetScore) {
-                return CalculateAceValue(valueAs1, targetScore, remainingAces - 1);
-            }
-            
-            return currentTotal;
+        public void SetHitting(bool hitting)
+        {
+            isHitting = hitting;
         }
 
         public override int GetHandValue()
         {
             int value = 0;
-            int aces = 0;
+            int numberOfAces = 0;
             var gameManager = FindFirstObjectByType<GameManager>();
             int targetScore = gameManager != null ? gameManager.GetCurrentTargetScore() : 21;
 
@@ -41,7 +32,7 @@ namespace CardGame
                 
                 if (cardRank == "A" || cardRank == "ACE")
                 {
-                    aces++;
+                    numberOfAces++;
                     value += 11;
                 }
                 else if (new[] { "K", "KING", "Q", "QUEEN", "J", "JACK" }.Contains(cardRank))
@@ -60,9 +51,10 @@ namespace CardGame
             }
 
             // Handle aces optimally
-            if (aces > 0)
+            while (value > targetScore && numberOfAces > 0)
             {
-                value = CalculateAceValue(value, targetScore, aces);
+                value -= 10;  // Convert an ace from 11 to 1
+                numberOfAces--;
             }
 
             return value;

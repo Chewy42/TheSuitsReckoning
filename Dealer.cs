@@ -3,16 +3,12 @@ using System.Collections;
 
 namespace CardGame {
     public class Dealer : MonoBehaviour {
-        [Tooltip("Initial delay before the first card is dealt")]
-        public float initialDealDelay = GameParameters.INITIAL_DEAL_DELAY;
-        
         [Tooltip("Delay in seconds between dealing each card")]
-        public float delayBetweenCards = GameParameters.DELAY_BETWEEN_CARDS;
+        private float delayBetweenCards => GameParameters.DELAY_BETWEEN_CARDS;
 
-        [Tooltip("How fast the card moves to its position in seconds")]
-        public float cardMoveSpeed = GameParameters.CARD_MOVE_SPEED;
+        [Tooltip("Duration for a card to move to its position in seconds")]
+        private float cardMoveDuration => GameParameters.CARD_MOVE_DURATION;
 
-        private bool hasInitialDelayPassed = false;
         private CardGame.AudioManager audioManager;
         private bool isDealingCard = false;
 
@@ -23,87 +19,55 @@ namespace CardGame {
             }
         }
 
-        public IEnumerator DealCard(Card card, Transform destination, bool isFaceDown = false) {
-            if (isDealingCard) {
-                Debug.LogWarning("Already dealing a card, waiting for completion");
-                yield return new WaitUntil(() => !isDealingCard);
+        public IEnumerator DealCard(Card card, Transform targetSlot, bool isFaceDown)
+        {
+            if (isDealingCard || card == null || targetSlot == null)
+            {
+                Debug.LogError($"Cannot deal card. isDealingCard: {isDealingCard}, card null: {card == null}, slot null: {targetSlot == null}");
+                yield break;
             }
 
             isDealingCard = true;
 
-            try {
-                if (card == null || destination == null) {
-                    Debug.LogError("DealCard: Card or destination is null!");
-                    yield break;
-                }
+            // Play the card dealing sound
+            audioManager?.PlaySound(SoundType.CardDeal);
 
-                Debug.Log($"Dealing card {card.name} to slot {destination.name}, face down: {isFaceDown}");
+            // Store initial position and set up card
+            Vector3 startPos = card.transform.position;
+            Vector3 endPos = targetSlot.position;
+            card.transform.SetParent(null);
 
-                // Only apply initial delay for the first card
-                if (!hasInitialDelayPassed) {
-                    yield return new WaitForSeconds(initialDealDelay);
-                    hasInitialDelayPassed = true;
-                }
+            // Set the initial rotation based on whether the card should be face down
+            card.transform.rotation = Quaternion.Euler(isFaceDown ? 90f : -90f, 0f, 0f);
 
-                if (audioManager != null) {
-                    audioManager.PlayDealSound();
-                }
-
-                Vector3 startPos = card.transform.position;
-                Vector3 endPos = destination.position;
-                float elapsedTime = 0f;
-
-                // Detach from current parent if any
-                card.transform.SetParent(null);
+            float elapsedTime = 0f;
+            while (elapsedTime < cardMoveDuration && card != null)
+            {
+                elapsedTime += Time.deltaTime;
+                float t = elapsedTime / cardMoveDuration;
                 
-                // Set proper rotation before movement starts
-                // -90 on X axis for face up cards as specified in requirements
-                card.transform.rotation = Quaternion.Euler(isFaceDown ? 90f : -90f, 0f, 0f);
-
-                while (elapsedTime < cardMoveSpeed && card != null) {
-                    elapsedTime += Time.deltaTime;
-                    float t = elapsedTime / cardMoveSpeed;
-                    
-                    // Use linear interpolation for faster, snappier movement
-                    Vector3 arcPos = Vector3.Lerp(startPos, endPos, t);
-                    arcPos.y += Mathf.Sin(t * Mathf.PI) * GameParameters.CARD_MOVEMENT_ARC_HEIGHT;
-                    
-                    // Simplified rotation
-                    float rotationAngle = Mathf.Sin(t * Mathf.PI) * 10f;
-                    card.transform.rotation = Quaternion.Euler(
-                        isFaceDown ? 90f : -90f,
-                        rotationAngle,
-                        0f
-                    );
-                    
-                    card.transform.position = arcPos;
-                    
-                    yield return null;
-                }
-
-                if (card != null && destination != null) {
-                    // Ensure final position and rotation are exact
-                    card.transform.position = endPos;
-                    card.transform.rotation = Quaternion.Euler(isFaceDown ? 90f : -90f, 0f, 0f);
-                    
-                    // Set parent and verify
-                    card.transform.SetParent(destination);
-                    if (card.transform.parent != destination) {
-                        Debug.LogError($"Failed to parent card {card.name} to slot {destination.name}!");
-                    } else {
-                        Debug.Log($"Successfully dealt card {card.name} to slot {destination.name}");
-                    }
-                }
-
-                yield return new WaitForSeconds(delayBetweenCards);
+                // Use linear interpolation for faster, snappier movement
+                Vector3 arcPos = Vector3.Lerp(startPos, endPos, t);
+                
+                // Add a slight arc to the movement
+                arcPos.y += Mathf.Sin(t * Mathf.PI) * GameParameters.CARD_MOVEMENT_ARC_HEIGHT;
+                
+                card.transform.position = arcPos;
+                yield return null;
             }
-            finally {
-                isDealingCard = false;
+
+            // Ensure final position and parent are set
+            if (card != null && targetSlot != null)
+            {
+                card.transform.position = endPos;
+                card.transform.SetParent(targetSlot);
             }
+
+            isDealingCard = false;
+            yield return new WaitForSeconds(delayBetweenCards);
         }
 
         public void ResetInitialDelay() {
-            hasInitialDelayPassed = false;
             if (audioManager != null) {
                 audioManager.ResetDealSoundSequence();
             }

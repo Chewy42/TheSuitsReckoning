@@ -15,55 +15,58 @@ namespace CardGame
         public TextMeshProUGUI targetScoreText;
         public TextMeshProUGUI roundText;
         public TextMeshProUGUI winsText;
+        public CanvasGroup feedbackFormCanvasGroup;
 
         private float lastUpdateTime = 0f;
         private Coroutine currentAnimationCoroutine;
         private Queue<IEnumerator> animationQueue = new Queue<IEnumerator>();
         private bool isProcessingAnimations = false;
+        private Dictionary<Transform, Coroutine> activeEmphasisAnimations = new Dictionary<Transform, Coroutine>();
 
         private void Start()
         {
             ResetUI();
+            if (feedbackFormCanvasGroup != null)
+            {
+                feedbackFormCanvasGroup.alpha = 0f;
+                feedbackFormCanvasGroup.interactable = false;
+                feedbackFormCanvasGroup.blocksRaycasts = false;
+            }
         }
 
         public void SetGameStatus(string status)
         {
-            if (gameStatusText != null)
+            if (string.IsNullOrEmpty(status) || status.ToLower().Contains("tutorial") || 
+                gameStatusText == null || gameManager.IsGameCompleted())
             {
-                gameStatusText.SetText(status);
-                Debug.Log($"Game status set to: {status}");
+                return;
             }
+            
+            gameStatusText.SetText(status);
         }
 
         public void IncrementWins()
         {
-            if (winsText != null && gameManager != null)
-            {
-                int currentWins = gameManager.GetCurrentWins();
-                Debug.Log($"Incrementing wins display to: {currentWins}");
-                winsText.text = $"Wins: {currentWins}";
-                StartCoroutine(EmphasisAnimation(winsText.transform));
-            }
+            if (winsText == null || gameManager == null) return;
+            
+            int currentWins = gameManager.GetCurrentWins();
+            winsText.text = currentWins.ToString();
+            StartEmphasisAnimation(winsText.transform);
         }
 
         public void ResetWins()
         {
             if (winsText != null)
             {
-                Debug.Log("Resetting wins display to 0");
-                winsText.text = "Wins: 0";
-                StartCoroutine(EmphasisAnimation(winsText.transform));
+                winsText.text = "0";
             }
         }
 
         public void UpdateScores()
         {
-            if (Time.time - lastUpdateTime < GameParameters.MIN_UI_UPDATE_INTERVAL)
-                return;
-
-            if (gameManager == null)
+            if (Time.time - lastUpdateTime < GameParameters.MIN_UI_UPDATE_INTERVAL || 
+                gameManager == null || gameManager.IsGameCompleted())
             {
-                Debug.LogError("Cannot update scores - GameManager reference is missing");
                 return;
             }
 
@@ -71,34 +74,27 @@ namespace CardGame
             int dealerScore = gameManager.GetDealerScore();
             int targetScore = gameManager.GetCurrentTargetScore();
 
-            Debug.Log($"Updating scores - Player: {playerScore}, Dealer: {dealerScore}, Target: {targetScore}");
-
-            if (playerScoreText != null)
-            {
-                playerScoreText.text = playerScore.ToString();
-                playerScoreText.color = GetScoreColor(playerScore, targetScore);
-                if (playerScore > targetScore)
-                {
-                    StartCoroutine(EmphasisAnimation(playerScoreText.transform));
-                }
-            }
-
-            if (dealerScoreText != null)
-            {
-                dealerScoreText.text = dealerScore.ToString();
-                dealerScoreText.color = GetScoreColor(dealerScore, targetScore);
-                if (dealerScore > targetScore)
-                {
-                    StartCoroutine(EmphasisAnimation(dealerScoreText.transform));
-                }
-            }
+            UpdateScoreText(playerScoreText, playerScore, targetScore);
+            UpdateScoreText(dealerScoreText, dealerScore, targetScore);
 
             lastUpdateTime = Time.time;
         }
 
+        private void UpdateScoreText(TextMeshProUGUI scoreText, int score, int targetScore)
+        {
+            if (scoreText == null) return;
+
+            scoreText.text = score.ToString();
+            scoreText.color = GetScoreColor(score, targetScore);
+            
+            if (score >= targetScore)
+            {
+                StartEmphasisAnimation(scoreText.transform);
+            }
+        }
+
         public void UpdateUI()
         {
-            Debug.Log("UpdateUI called - Refreshing all displays");
             UpdateScores();
             UpdateStatusDisplays(gameManager?.GetCurrentRound() ?? 1, gameManager?.GetCurrentWins() ?? 0);
         }
@@ -112,12 +108,18 @@ namespace CardGame
 
         public void ShowDealerThinking()
         {
-            StartCoroutine(AnimateDealerThinking(new[] { "Dealer Thinking", "Dealer Thinking.", "Dealer Thinking..", "Dealer Thinking..." }));
+            if (!gameManager.IsGameCompleted())
+            {
+                StartCoroutine(AnimateDealerThinking(new[] { "Dealer Thinking", "Dealer Thinking.", "Dealer Thinking..", "Dealer Thinking..." }));
+            }
         }
 
         public void ShowDealerPlaying()
         {
-            SetGameStatus("Dealer Playing");
+            if (!gameManager.IsGameCompleted())
+            {
+                SetGameStatus("Dealer Playing");
+            }
         }
 
         private IEnumerator AnimateDealerThinking(string[] thinkingTexts)
@@ -142,39 +144,40 @@ namespace CardGame
         {
             if (targetScoreText != null)
             {
-                Debug.Log($"Updating target score display to: {score}");
-                targetScoreText.text = $"Target Score: {score}";
-                StartCoroutine(EmphasisAnimation(targetScoreText.transform));
+                targetScoreText.text = score.ToString();
+                StartEmphasisAnimation(targetScoreText.transform);
             }
         }
 
         public void UpdateStatusDisplays(int round, int wins, bool animated = false)
         {
-            Debug.Log($"Updating status displays - Round: {round}/3, Wins: {wins}");
-            
             if (roundText != null)
             {
-                roundText.text = $"Round: {round}/3";
+                roundText.text = $"{round}/{GameParameters.MAX_ROUNDS}";
                 if (animated)
                 {
-                    StartCoroutine(EmphasisAnimation(roundText.transform));
+                    StartEmphasisAnimation(roundText.transform);
                 }
             }
             
             if (winsText != null)
             {
-                winsText.text = $"Wins: {wins}";
+                winsText.text = wins.ToString();
                 if (animated)
                 {
-                    StartCoroutine(EmphasisAnimation(winsText.transform));
+                    StartEmphasisAnimation(winsText.transform);
                 }
+            }
+
+            // Show feedback form if player beats round 3
+            if (round > GameParameters.MAX_ROUNDS)
+            {
+                ShowFeedbackForm();
             }
         }
 
         public void ResetUI()
         {
-            Debug.Log("Performing full UI reset");
-
             if (gameStatusText != null)
                 gameStatusText.text = "";
 
@@ -191,42 +194,130 @@ namespace CardGame
             }
 
             if (targetScoreText != null)
-                targetScoreText.text = $"Target Score: {GameParameters.DEFAULT_TARGET_SCORE}";
+                targetScoreText.text = GameParameters.DEFAULT_TARGET_SCORE.ToString();
 
             if (roundText != null)
-                roundText.text = "Round: 1/3";
+                roundText.text = $"1/{GameParameters.MAX_ROUNDS}";
 
-            ResetWins();
+            if (winsText != null)
+                winsText.text = "0";
+        }
+
+        private void StopEmphasisAnimation(Transform target)
+        {
+            if (activeEmphasisAnimations.TryGetValue(target, out Coroutine routine))
+            {
+                if (routine != null)
+                {
+                    StopCoroutine(routine);
+                }
+                activeEmphasisAnimations.Remove(target);
+            }
         }
 
         private IEnumerator EmphasisAnimation(Transform target)
         {
             if (target == null) yield break;
 
-            Vector3 originalScale = target.localScale;
-            Vector3 originalPosition = target.position;
-            
-            // Scale up
-            float scaleUpTime = 0f;
-            float scaleDuration = 0.2f;
-            while (scaleUpTime < scaleDuration)
+            // Get the TextMeshPro component
+            var textComponent = target.GetComponent<TextMeshProUGUI>();
+            if (textComponent == null) yield break;
+
+            // Stop any existing animation on this target
+            StopEmphasisAnimation(target);
+
+            float originalSize = textComponent.fontSize;
+            float targetSize = originalSize + 2f;
+            float duration = 0.2f;
+            float elapsed = 0f;
+
+            try
             {
-                scaleUpTime += Time.deltaTime;
-                float t = scaleUpTime / scaleDuration;
-                float smoothT = t * t * (3f - 2f * t);
-                float scale = 1f + Mathf.Sin(smoothT * Mathf.PI) * 0.2f;
-                target.localScale = originalScale * scale;
+                // Increase size
+                while (elapsed < duration / 2)
+                {
+                    elapsed += Time.deltaTime;
+                    float t = elapsed / (duration / 2);
+                    float smoothT = t * t * (3f - 2f * t); // Smooth step interpolation
+                    textComponent.fontSize = Mathf.Lerp(originalSize, targetSize, smoothT);
+                    yield return null;
+                }
+
+                // Decrease size back to original
+                elapsed = 0f;
+                while (elapsed < duration / 2)
+                {
+                    elapsed += Time.deltaTime;
+                    float t = elapsed / (duration / 2);
+                    float smoothT = t * t * (3f - 2f * t); // Smooth step interpolation
+                    textComponent.fontSize = Mathf.Lerp(targetSize, originalSize, smoothT);
+                    yield return null;
+                }
+            }
+            finally
+            {
+                // Always ensure we reset to original size
+                if (textComponent != null)
+                {
+                    textComponent.fontSize = originalSize;
+                }
+                if (activeEmphasisAnimations.ContainsKey(target))
+                {
+                    activeEmphasisAnimations.Remove(target);
+                }
+            }
+        }
+
+        private void StartEmphasisAnimation(Transform target)
+        {
+            if (target != null)
+            {
+                var routine = StartCoroutine(EmphasisAnimation(target));
+                activeEmphasisAnimations[target] = routine;
+            }
+        }
+
+        public void ShowFeedbackForm()
+        {
+            if (feedbackFormCanvasGroup != null)
+            {
+                // Ensure the feedback form is active and visible
+                feedbackFormCanvasGroup.gameObject.SetActive(true);
                 
-                // Add slight upward movement
-                float yOffset = Mathf.Sin(smoothT * Mathf.PI) * 5f;
-                target.position = originalPosition + Vector3.up * yOffset;
-                
+                // Hide all other UI elements immediately
+                if (playerScoreText != null) playerScoreText.gameObject.SetActive(false);
+                if (dealerScoreText != null) dealerScoreText.gameObject.SetActive(false);
+                if (gameStatusText != null) gameStatusText.gameObject.SetActive(false);
+                if (targetScoreText != null) targetScoreText.gameObject.SetActive(false);
+                if (roundText != null) roundText.gameObject.SetActive(false);
+                if (winsText != null) winsText.gameObject.SetActive(false);
+
+                // Start the fade animation
+                StopAllCoroutines(); // Stop any existing fade animations
+                StartCoroutine(FadeFeedbackForm());
+            }
+        }
+
+        private IEnumerator FadeFeedbackForm()
+        {
+            if (feedbackFormCanvasGroup == null) yield break;
+
+            feedbackFormCanvasGroup.alpha = 0f;
+            feedbackFormCanvasGroup.interactable = true;
+            feedbackFormCanvasGroup.blocksRaycasts = true;
+
+            float elapsed = 0f;
+            while (elapsed < GameParameters.FEEDBACK_FORM_FADE_DURATION)
+            {
+                elapsed += Time.deltaTime;
+                float t = elapsed / GameParameters.FEEDBACK_FORM_FADE_DURATION;
+                float smoothT = t * t * (3f - 2f * t); // Smooth step interpolation
+                feedbackFormCanvasGroup.alpha = Mathf.Lerp(0f, 1f, smoothT);
                 yield return null;
             }
 
-            // Return to original
-            target.localScale = originalScale;
-            target.position = originalPosition;
+            // Ensure we end at exactly 1
+            feedbackFormCanvasGroup.alpha = 1f;
         }
 
         private IEnumerator ProcessAnimationQueue()
@@ -260,10 +351,9 @@ namespace CardGame
             if (targetScoreText == null)
                 yield break;
 
-            Debug.Log($"Starting target score randomization animation, final score will be: {finalScore}");
-            
-            int previousScore = currentTargetScore;
+            int previousScore = gameManager.GetCurrentTargetScore();
             HashSet<int> usedScores = new HashSet<int> { previousScore, finalScore };
+            float animationDelay = 0.3f;
 
             for (int i = 0; i < 5; i++)
             {
@@ -274,23 +364,22 @@ namespace CardGame
                         GameParameters.MIN_TARGET_SCORE,
                         GameParameters.MAX_TARGET_SCORE + 1
                     );
-                } while (usedScores.contains(randomScore));
+                } while (usedScores.Contains(randomScore));
                 
                 usedScores.Add(randomScore);
-                targetScoreText.text = $"Target Score: {randomScore}";
+                targetScoreText.text = randomScore.ToString();
 
                 if (i < 4)
                 {
                     gameManager?.GetAudioManager()?.PlaySound(SoundType.RandomizeTarget1);
-                    yield return new WaitForSeconds(0.35f);
+                    StartEmphasisAnimation(targetScoreText.transform);
+                    yield return new WaitForSeconds(animationDelay);
                 }
                 else
                 {
                     gameManager?.GetAudioManager()?.PlaySound(SoundType.RandomizeTarget2);
-                    yield return new WaitForSeconds(0.5f);
-                    targetScoreText.text = $"Target Score: {finalScore}";
-                    StartCoroutine(EmphasisAnimation(targetScoreText.transform));
-                    Debug.Log($"Target score randomization complete: {finalScore}");
+                    targetScoreText.text = finalScore.ToString();
+                    StartEmphasisAnimation(targetScoreText.transform);
                 }
             }
         }
@@ -304,6 +393,16 @@ namespace CardGame
             }
             animationQueue.Clear();
             isProcessingAnimations = false;
+
+            // Clean up any running animations
+            foreach (var animation in activeEmphasisAnimations.Values)
+            {
+                if (animation != null)
+                {
+                    StopCoroutine(animation);
+                }
+            }
+            activeEmphasisAnimations.Clear();
         }
     }
 }

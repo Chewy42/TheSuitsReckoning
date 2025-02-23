@@ -7,33 +7,48 @@ namespace CardGame
     /// </summary>
     public static class GameParameters
     {
-        #region Card Dealing Parameters
+        #region Card Movement Parameters
         /// <summary>
         /// Initial delay before the first card is dealt (seconds)
         /// </summary>
-        public const float INITIAL_DEAL_DELAY = 0.3f;
+        public const float INITIAL_DEAL_DELAY = 1f;
 
         /// <summary>
         /// Delay between dealing each card (seconds)
         /// </summary>
-        public const float DELAY_BETWEEN_CARDS = 0.05f;
+        public const float DELAY_BETWEEN_CARDS = 0.15f;
 
         /// <summary>
-        /// Speed at which cards move to their position (seconds)
+        /// Duration for a card to move to its position (seconds)
         /// </summary>
-        public const float CARD_MOVE_SPEED = 0.05f;
+        public const float CARD_MOVE_DURATION = 0.25f;
+
+        /// <summary>
+        /// Duration for a card to return to deck (seconds)
+        /// </summary>
+        public const float CARD_RETURN_DURATION = 0.5f;
+
+        /// <summary>
+        /// Delay between returning cards to deck (seconds)
+        /// </summary>
+        public const float CARD_RETURN_DELAY = 0.2f;
+
+        /// <summary>
+        /// Duration of card flip animation (seconds)
+        /// </summary>
+        public const float CARD_FLIP_DURATION = 0.15f;
         #endregion
 
         #region Dealer Parameters
         /// <summary>
         /// Time dealer waits before making a decision (seconds)
         /// </summary>
-        public const float DEALER_PLAY_DELAY = 1.0f;
+        public const float DEALER_PLAY_DELAY = 1f;
 
         /// <summary>
         /// Time for dealer thinking animation (seconds)
         /// </summary>
-        public const float DEALER_THINKING_ANIMATION_TIME = 0.5f;
+        public const float DEALER_THINKING_ANIMATION_TIME = 0.15f;
         #endregion
 
         #region Voice Line Parameters
@@ -45,12 +60,8 @@ namespace CardGame
         /// <summary>
         /// Maximum time between generic voice lines (seconds)
         /// </summary>
-        public const float MAX_GENERIC_VOICE_LINE_INTERVAL = 40.0f;
+        public const float MAX_GENERIC_VOICE_LINE_INTERVAL = 20.0f;
 
-        /// <summary>
-        /// Default voice pitch variation range
-        /// </summary>
-        public const float VOICE_PITCH_VARIATION = 1.0f;
         #endregion
 
         #region Game Score Parameters
@@ -62,29 +73,29 @@ namespace CardGame
         /// <summary>
         /// Minimum possible target score when randomizing
         /// </summary>
-        public const int MIN_TARGET_SCORE = 15;
+        public const int MIN_TARGET_SCORE = 28;
 
         /// <summary>
         /// Maximum possible target score when randomizing
         /// </summary>
-        public const int MAX_TARGET_SCORE = 24;
+        public const int MAX_TARGET_SCORE = 36;
         #endregion
 
         #region Card Animation Parameters
         /// <summary>
-        /// Speed at which cards return to deck
+        /// X rotation when card is face up (degrees)
         /// </summary>
-        public const float CARD_RETURN_SPEED = 20f;
-
+        public const float FACE_UP_X_ROTATION = 0f;
+        
         /// <summary>
-        /// Duration of card flip animation
+        /// X rotation when card is face down (degrees)
         /// </summary>
-        public const float CARD_FLIP_DURATION = 0.15f;
+        public const float FACE_DOWN_X_ROTATION = 180f;
 
         /// <summary>
         /// Delay before playing card deal animation
         /// </summary>
-        public const float CARD_DEAL_DELAY = 0.25f;
+        public const float CARD_DEAL_DELAY = 0.1f;
         #endregion
 
         #region Round Parameters
@@ -106,17 +117,17 @@ namespace CardGame
         /// <summary>
         /// Delay before transitioning to the next round (seconds)
         /// </summary>
-        public const float ROUND_TRANSITION_DELAY = 1.0f;
+        public const float ROUND_TRANSITION_DELAY = 0.4f;
 
         /// <summary>
         /// Time to display round end screen (seconds)
         /// </summary>
-        public const float ROUND_END_DISPLAY_TIME = 2.0f;
+        public const float ROUND_END_DISPLAY_TIME = 1.0f;
 
         /// <summary>
-        /// Delay before returning cards to the deck (seconds)
+        /// Delay before starting intermission after game ends (seconds)
         /// </summary>
-        public const float CARD_RETURN_DELAY = 0.1f;
+        public const float END_GAME_DELAY = 2f;
         #endregion
 
         #region Game Rules
@@ -130,7 +141,12 @@ namespace CardGame
         /// <summary>
         /// Height of the arc for card movement
         /// </summary>
-        public const float CARD_MOVEMENT_ARC_HEIGHT = 0.75f;
+        public const float CARD_MOVEMENT_ARC_HEIGHT = 2f;
+
+        /// <summary>
+        /// Duration of feedback form fade animation (seconds)
+        /// </summary>
+        public const float FEEDBACK_FORM_FADE_DURATION = 1f;
         #endregion
 
         #region Timing Safety Parameters
@@ -142,12 +158,12 @@ namespace CardGame
         /// <summary>
         /// Maximum allowed time for dealer's decision making (seconds)
         /// </summary>
-        public const float MAX_DEALER_DECISION_TIME = 3.0f;
+        public const float MAX_DEALER_DECISION_TIME = 1f;
 
         /// <summary>
         /// Time to wait before auto-standing if player is inactive (seconds)
         /// </summary>
-        public const float PLAYER_INACTIVITY_TIMEOUT = 30.0f;
+        public const float PLAYER_INACTIVITY_TIMEOUT = 20.0f;
 
         /// <summary>
         /// Time to wait between UI updates to prevent visual flickering
@@ -188,6 +204,73 @@ namespace CardGame
         /// </summary>
         public const int MAX_CONCURRENT_ANIMATIONS = 3;
         #endregion
+
+        #region UI Text
+        /// <summary>
+        /// Text displayed while the deck is shuffling.
+        /// </summary>
+        public const string SHUFFLING_TEXT = "Shuffling...";
+
+        /// <summary>
+        /// Text displayed when a round is complete.
+        /// </summary>
+        public const string ROUND_COMPLETE_TEXT = "Round Complete!";
+
+        /// <summary>
+        /// Text displayed when the game is complete.
+        /// </summary>
+        public const string GAME_COMPLETE_TEXT = "Congratulations! Game Complete!";
+
+        /// <summary>
+        /// Text displayed for player's turn.
+        /// </summary>
+        public const string YOUR_TURN_TEXT = "Your turn";
+
+        /// <summary>
+        /// Text displayed when the dealer is thinking.
+        /// </summary>
+        public const string DEALER_THINKING_TEXT = "Dealer Thinking...";
+
+        /// <summary>
+        /// Format for the win message when the player wins by dealer bust.
+        /// </summary>
+        public const string PLAYER_WINS_DEALER_BUSTS_FORMAT = "Player wins! Dealer busted with {0}";
+
+        /// <summary>
+        /// Format for the win message when the dealer wins by player bust.
+        /// </summary>
+        public const string DEALER_WINS_PLAYER_BUSTS_FORMAT = "Dealer wins! Player busted with {0}";
+
+        /// <summary>
+        /// Format for the win message when dealer wins with a score.
+        /// </summary>
+        public const string DEALER_WINS_FORMAT = "Dealer wins with {0}!";
+
+        /// <summary>
+        /// Format for the win message when player wins with a score.
+        /// </summary>
+        public const string PLAYER_WINS_FORMAT = "Player wins with {0}!";
+
+        /// <summary>
+        /// Format for the message when there is a tie.
+        /// </summary>
+        public const string TIE_DEALER_WINS_FORMAT = "Tie at {0}! Dealer wins!";
+
+        /// <summary>
+        /// Prefix text for target score.
+        /// </summary>
+        public const string TARGET_SCORE_PREFIX = "Target Score: ";
+
+        /// <summary>
+        /// Format for round text.
+        /// </summary>
+        public const string ROUND_TEXT_FORMAT = "Round: {0}/{1}";
+
+        /// <summary>
+        /// Format for wins text.
+        /// </summary>
+        public const string WINS_TEXT_FORMAT = "Wins: {0}";
+#endregion
 
         #region Round State Validation
         /// <summary>
