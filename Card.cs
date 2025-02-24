@@ -22,22 +22,27 @@ namespace CardGame {
             // Parse rank and suit from the object name
             if (gameObject.name.StartsWith("PlayingCards_")) {
                 string cardInfo = gameObject.name.Substring("PlayingCards_".Length);
-                // Handle special cases for 10 first
+                
+                // Handle special cases for 10 first since it's two digits
                 if (cardInfo.StartsWith("10")) {
                     rank = "10";
                     suit = cardInfo.Substring(2);
                 } else {
-                    string singleRank = cardInfo.Substring(0, 1);
-                    // Map single-letter ranks to full names
-                    rank = singleRank switch {
+                    // For all other cases, first character is the rank
+                    string rankChar = cardInfo.Substring(0, 1);
+                    suit = cardInfo.Substring(1);
+                    
+                    // Map face cards and ace to their full names
+                    rank = rankChar switch {
                         "K" => "King",
                         "Q" => "Queen",
                         "J" => "Jack",
                         "A" => "Ace",
-                        _ => singleRank // Keep numeric values as is
+                        _ => rankChar // Keep numeric values as is
                     };
-                    suit = cardInfo.Substring(1);
                 }
+                
+                Debug.Log($"Initialized card: {rank} of {suit}");
             } else {
                 Debug.LogWarning($"Card {gameObject.name} does not follow the naming convention PlayingCards_[Rank][Suit]");
             }

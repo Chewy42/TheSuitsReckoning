@@ -272,6 +272,13 @@ namespace CardGame
         public const string WINS_TEXT_FORMAT = "Wins: {0}";
 #endregion
 
+        #region Camera Parameters
+        /// <summary>
+        /// Duration in seconds for the camera to move from position 1 to position 2 in the map scene
+        /// </summary>
+        public const float MAP_SCENE_CAMERA_LERP_DURATION = 3.5f;
+        #endregion
+
         #region Round State Validation
         /// <summary>
         /// Validate that round numbers are within expected range

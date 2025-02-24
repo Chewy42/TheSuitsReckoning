@@ -49,11 +49,12 @@ public class PlayerInteraction : MonoBehaviour {
         
         // Enhanced state check for interactions
         bool shouldDisableInteraction = currentState == GameState.Initializing ||
-                                      currentState == GameState.GameOver ||
-                                      currentState == GameState.Intermission ||
-                                      currentState == GameState.DealerTurn ||
-                                      gameManager.IsDealing() ||
-                                      gameManager.IsReturnOrRandomizing();
+                                  currentState == GameState.GameOver ||
+                                  currentState == GameState.Intermission ||
+                                  currentState == GameState.DealerTurn ||
+                                  gameManager.IsDealing() ||
+                                  gameManager.IsReturnOrRandomizing() ||
+                                  gameManager.IsGamePaused();
         
         if (shouldDisableInteraction)
         {

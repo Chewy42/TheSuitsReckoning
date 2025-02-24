@@ -5,7 +5,7 @@ using UnityEngine;
 public class GameIntroCameraManager : MonoBehaviour
 {
     [SerializeField]
-    private Camera camera;
+    private new Camera camera;  // Intentionally hiding Component.camera
 
     [SerializeField] 
     private Vector3 targetPosition;

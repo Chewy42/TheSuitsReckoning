@@ -56,6 +56,7 @@ public class CinematicIntroManager : MonoBehaviour
     private List<Coroutine> flickerCoroutines = new List<Coroutine>();
 
     private bool cinematicStarted = false;
+    private bool isSkipping = false;
 
     private void Start()
     {
@@ -83,6 +84,15 @@ public class CinematicIntroManager : MonoBehaviour
 
         // Automatically start the cinematic sequence
         StartCinematicSequence();
+    }
+
+    private void Update()
+    {
+        // Check for Backspace key press
+        if (Input.GetKeyDown(KeyCode.Backspace) && !isSkipping)
+        {
+            SkipCinematic();
+        }
     }
 
     private void InitializeFlickeringLights()
@@ -214,6 +224,9 @@ public class CinematicIntroManager : MonoBehaviour
         // Wait for initial delay
         yield return new WaitForSeconds(initialDelay);
 
+        // Check for skip between each major sequence
+        if (isSkipping) yield break;
+
         // Play Mom's first line
         if (Mom_1 != null)
         {
@@ -225,6 +238,9 @@ public class CinematicIntroManager : MonoBehaviour
         // Wait for response delay before Player_1
         yield return new WaitForSeconds(responseDelay);
 
+        // Check for skip between each major sequence
+        if (isSkipping) yield break;
+
         // Play Player's response
         if (Player_1 != null)
         {
@@ -235,6 +251,9 @@ public class CinematicIntroManager : MonoBehaviour
 
         // Wait before playing TV off sound
         yield return new WaitForSeconds(tvOffDelay);
+
+        // Check for skip between each major sequence
+        if (isSkipping) yield break;
 
         // Play TV off sound and change screen material
         if (tvOffSound != null)
@@ -261,6 +280,9 @@ public class CinematicIntroManager : MonoBehaviour
         // Wait before Player 2's line
         yield return new WaitForSeconds(player2Delay);
 
+        // Check for skip between each major sequence
+        if (isSkipping) yield break;
+
         // Play Player 2's line
         if (Player_2 != null)
         {
@@ -272,6 +294,9 @@ public class CinematicIntroManager : MonoBehaviour
         // Wait before Mom 3's line
         yield return new WaitForSeconds(mom3Delay);
 
+        // Check for skip between each major sequence
+        if (isSkipping) yield break;
+
         // Play Mom 3's line
         if (Mom_3 != null)
         {
@@ -282,6 +307,9 @@ public class CinematicIntroManager : MonoBehaviour
 
         // Wait before Player 3's line
         yield return new WaitForSeconds(player3Delay);
+
+        // Check for skip between each major sequence
+        if (isSkipping) yield break;
 
         // Play Player 3's line with bowl movement
         if (Player_3 != null)
@@ -300,6 +328,9 @@ public class CinematicIntroManager : MonoBehaviour
         // Wait before Mom 4's line
         yield return new WaitForSeconds(mom4Delay);
 
+        // Check for skip between each major sequence
+        if (isSkipping) yield break;
+
         // Play Mom 4's line
         if (Mom_4 != null)
         {
@@ -310,6 +341,9 @@ public class CinematicIntroManager : MonoBehaviour
 
         // Wait before Player 4's line
         yield return new WaitForSeconds(player4Delay);
+
+        // Check for skip between each major sequence
+        if (isSkipping) yield break;
 
         // Play Player 4's line and move camera simultaneously
         if (Player_4 != null)
@@ -328,6 +362,9 @@ public class CinematicIntroManager : MonoBehaviour
         {
             yield return null;
         }
+
+        // Check for skip between each major sequence
+        if (isSkipping) yield break;
 
         // Play the final audio for exactly 10 seconds
         if (finalAudio != null)
@@ -348,11 +385,7 @@ public class CinematicIntroManager : MonoBehaviour
         }
 
         // Load the main scene
-        SceneManager.LoadScene("MapScene");
-
-        
-
-        
+        SceneManager.LoadScene("GameIntroToMap");
     }
 
     private IEnumerator MoveBowl()
@@ -378,5 +411,42 @@ public class CinematicIntroManager : MonoBehaviour
         // Ensure bowl reaches exact end position
         bowl.transform.position = bowlEndPosition.position;
         bowl.transform.rotation = bowlEndPosition.rotation;
+    }
+
+    private void SkipCinematic()
+    {
+        isSkipping = true;
+        
+        // Stop all coroutines
+        StopAllCoroutines();
+        
+        // Stop any playing audio
+        if (audioSource != null && audioSource.isPlaying)
+        {
+            audioSource.Stop();
+        }
+
+        // Reset lights to base intensity
+        foreach (var light in flickeringLights)
+        {
+            if (light != null && lightBaseIntensities.ContainsKey(light))
+                light.intensity = lightBaseIntensities[light];
+        }
+
+        // Ensure TV screen is off
+        if (tvScreenRenderer != null && offMaterial != null)
+        {
+            tvScreenRenderer.material = offMaterial;
+        }
+
+        // Ensure bowl is in final position if it exists
+        if (bowl != null && bowlEndPosition != null)
+        {
+            bowl.transform.position = bowlEndPosition.position;
+            bowl.transform.rotation = bowlEndPosition.rotation;
+        }
+
+        // Load the next scene immediately
+        SceneManager.LoadScene("GameIntroToMap");
     }
 }

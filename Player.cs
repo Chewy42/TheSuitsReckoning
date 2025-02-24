@@ -98,7 +98,7 @@ namespace CardGame {
             Debug.Log($"{playerType} hand cleared");
         }
 
-        public List<Card> GetHand() => hand;
+        public List<Card> GetAllCards() => hand;
 
         public Transform GetNextAvailableSlot() {
             if (cardSlots == null || cardSlots.Count == 0) {

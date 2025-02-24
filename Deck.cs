@@ -23,42 +23,41 @@ namespace CardGame {
             cards.Clear();
         }
 
-        protected void LoadCards() {
-            // Clear existing cards
-            foreach (Card card in cards) {
-                if (card != null && card.gameObject != null) {
-                    Destroy(card.gameObject);
-                }
-            }
+        public void LoadCards() {
+            // Clear existing cards list but don't destroy the objects
             cards.Clear();
 
-            // Find all potential card objects under this deck by name pattern
-            Transform[] allChildren = GetComponentsInChildren<Transform>(true);
+            // Find ALL GameObjects that match our naming convention
+            var allObjects = GameObject.FindObjectsByType<GameObject>(FindObjectsSortMode.None);
             Dictionary<string, bool> uniqueCards = new Dictionary<string, bool>();
 
-            foreach (Transform child in allChildren) {
-                if (child.name.StartsWith("PlayingCards_")) {
+            foreach (var obj in allObjects) {
+                if (obj.name.StartsWith("PlayingCards_")) {
                     // Check for duplicate cards
-                    if (uniqueCards.ContainsKey(child.name)) {
-                        Debug.LogError($"Duplicate card found: {child.name}");
+                    if (uniqueCards.ContainsKey(obj.name)) {
+                        Debug.LogError($"Duplicate card found: {obj.name}");
                         continue;
                     }
-                    uniqueCards[child.name] = true;
+                    uniqueCards[obj.name] = true;
 
-                    Card card = child.GetComponent<Card>();
+                    // Get or add Card component
+                    Card card = obj.GetComponent<Card>();
                     if (card == null) {
-                        card = child.gameObject.AddComponent<Card>();
-                        Debug.Log($"Added Card component to {child.name}");
+                        card = obj.AddComponent<Card>();
+                        Debug.Log($"Added Card component to {obj.name}");
                     }
+
+                    // Set the card's parent back to the deck
+                    obj.transform.SetParent(transform);
                     cards.Add(card);
                     card.SetFaceDown(true);
                     card.InitializeCard();
-                    Debug.Log($"Added card {child.name} to deck");
+                    Debug.Log($"Added card {obj.name} to deck");
                 }
             }
 
             if (cards.Count == 0) {
-                Debug.LogError("No cards found in deck! Make sure cards are named PlayingCards_[Rank][Suit]");
+                Debug.LogError("No cards found in scene! Make sure cards are named PlayingCards_[Rank][Suit]");
             } else if (cards.Count != 52) {
                 Debug.LogWarning($"Unexpected number of cards in deck: {cards.Count}. Standard deck should have 52 cards.");
             } else {

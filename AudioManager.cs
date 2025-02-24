@@ -55,6 +55,9 @@ namespace CardGame
         private float maxGenericVoiceLineInterval = GameParameters.MAX_GENERIC_VOICE_LINE_INTERVAL;
         private float nextGenericVoiceLineTime;
 
+        [Header("References")]
+        [SerializeField] private GameManager gameManager;
+
         private AudioSource audioSource;
         private AudioSource voiceSource;
         private AudioClip currentVoiceLine;
@@ -80,6 +83,16 @@ namespace CardGame
             voiceSource.playOnAwake = false;
             voiceSource.loop = false;
 
+            // If GameManager reference is not set, try to find it
+            if (gameManager == null)
+            {
+                gameManager = FindAnyObjectByType<GameManager>();
+                if (gameManager == null)
+                {
+                    Debug.LogWarning("AudioManager: GameManager reference not set and couldn't be found!");
+                }
+            }
+            
             // Initialize the time for the first generic voice line
             SetNextGenericVoiceLineTime();
         }
@@ -87,7 +100,7 @@ namespace CardGame
         private void Update()
         {
             // Check if it's time for a random generic voice line
-            if (Time.time >= nextGenericVoiceLineTime)
+            if (Time.time >= nextGenericVoiceLineTime && (gameManager == null || !gameManager.IsPausedForTutorial()))
             {
                 PlayRandomGenericVoiceLine();
                 SetNextGenericVoiceLineTime();
@@ -150,19 +163,29 @@ namespace CardGame
 
         public void PlayWinVoiceLine()
         {
+            if (gameManager != null && gameManager.IsPausedForTutorial())
+            {
+                return;
+            }
+
             if (winVoiceLines != null && winVoiceLines.Length > 0)
             {
-                AudioClip selectedClip = winVoiceLines[Random.Range(0, winVoiceLines.Length)];
-                PlayVoiceLine(selectedClip);
+                int randomIndex = Random.Range(0, winVoiceLines.Length);
+                PlayVoiceLine(winVoiceLines[randomIndex]);
             }
         }
 
         public void PlayLoseVoiceLine()
         {
+            if (gameManager != null && gameManager.IsPausedForTutorial())
+            {
+                return;
+            }
+
             if (loseVoiceLines != null && loseVoiceLines.Length > 0)
             {
-                AudioClip selectedClip = loseVoiceLines[Random.Range(0, loseVoiceLines.Length)];
-                PlayVoiceLine(selectedClip);
+                int randomIndex = Random.Range(0, loseVoiceLines.Length);
+                PlayVoiceLine(loseVoiceLines[randomIndex]);
             }
         }
 
@@ -242,6 +265,11 @@ namespace CardGame
 
         public void PlayRandomGenericVoiceLine()
         {
+            if (gameManager != null && gameManager.IsPausedForTutorial())
+            {
+                return;
+            }
+
             if (genericVoiceClips != null && genericVoiceClips.Length > 0)
             {
                 int randomIndex = Random.Range(0, genericVoiceClips.Length);
@@ -251,6 +279,11 @@ namespace CardGame
 
         public void PlayShockedVoiceLine()
         {
+            if (gameManager != null && gameManager.IsPausedForTutorial())
+            {
+                return;
+            }
+
             currentVoiceLine = shockedVoiceLine;
             PlayVoiceLine(shockedVoiceLine);
         }

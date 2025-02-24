@@ -61,6 +61,9 @@ namespace CardGame
         private bool isPlayerWinner;
         private bool isTransitioningState;
         private bool isShuttingDown;
+        private bool isPausedForTutorial = false;
+        private bool isPaused = false;
+        private bool hasShownFirstGameTutorial = false;
         #endregion
 
         #region Game Progress
@@ -124,10 +127,21 @@ namespace CardGame
         public int GetDealerScore() => dealerPlayer?.GetHandValue() ?? 0;
 
         /// <summary>Gets the dealer's current hand of cards</summary>
-        public List<Card> GetDealerHand() => dealerPlayer?.GetHand() ?? new List<Card>();
+        public List<Card> GetDealerHand() => dealerPlayer?.GetAllCards() ?? new List<Card>();
 
         /// <summary>Gets the audio manager reference</summary>
         public AudioManager GetAudioManager() => audioManager;
+        
+        /// <summary>Gets whether the game is paused for a tutorial</summary>
+        public bool IsPausedForTutorial()
+        {
+            return isPausedForTutorial;
+        }
+        
+        public bool IsGamePaused()
+        {
+            return isPaused;
+        }
         #endregion
 
         #region Initialization
@@ -141,15 +155,44 @@ namespace CardGame
             }
             Instance = this;
             
+            // Reset all static/persistent state
+            currentRound = 1;
+            currentWins = 0;
+            currentTargetScore = GameParameters.DEFAULT_TARGET_SCORE;
+            isPlayerWinner = false;
+            
             InitializeComponents();
             Debug.Log("GameManager initialized successfully");
         }
 
         private void Start()
         {
+            // Initialize all components first
+            InitializeComponents();
+            
+            // Begin the game directly
             BeginGame();
+            Debug.Log("Game started - Beginning initial setup");
         }
 
+        private IEnumerator InitializeNewGame()
+        {
+            // Wait a frame to ensure all components are properly initialized
+            yield return null;
+            
+            // Reset game state
+            ResetGame(true);
+            
+            // Initialize UI
+            uiManager?.UpdateStatusDisplays(currentRound, currentWins, true);
+            uiManager?.UpdateTargetScore(currentTargetScore);
+            
+            // Begin the game
+            BeginGame();
+            
+            Debug.Log("Game initialization complete");
+        }
+        
         /// <summary>
         /// Initializes all required game components, finding them in the scene if not already assigned
         /// </summary>
@@ -189,93 +232,6 @@ namespace CardGame
         #endregion
 
         #region Game State Management
-        /// <summary>
-        /// Resets the state variables for a new round
-        /// </summary>
-        private void ResetRoundState()
-        {
-            isDealing = false;
-            isReturningCards = false;
-            isRandomizingTarget = false;
-            isPlayerWinner = false;
-        }
-
-        /// <summary>
-        /// Resets the game state, optionally performing a full reset
-        /// </summary>
-        /// <param name="fullReset">If true, resets all progress including rounds and wins</param>
-        private void ResetGame(bool fullReset)
-        {
-            // Always reset round to 1 if dealer won (when player has 0 wins)
-            bool shouldResetRound = fullReset || currentWins == 0;
-            
-            if (shouldResetRound)
-            {
-                currentRound = 1;
-                // Round 1 always uses default target score (21)
-                currentTargetScore = GameParameters.DEFAULT_TARGET_SCORE;
-                Debug.Log("Reset to Round 1 - Using default target score (21)");
-            }
-
-            if (fullReset)
-            {
-                currentWins = 0;
-            }
-
-            // Reset state
-            ResetRoundState();
-            
-            // Clear hands
-            ClearPlayerHands();
-            
-            // Reset UI
-            ResetUI();
-            
-            // Reset dealer and begin new game
-            dealer?.ResetInitialDelay();
-            BeginGame();
-        }
-
-        /// <summary>
-        /// Clears the hands of both player and dealer
-        /// </summary>
-        private void ClearPlayerHands()
-        {
-            playerPlayer?.ClearHand();
-            dealerPlayer?.ClearHand();
-        }
-
-        /// <summary>
-        /// Resets all UI elements to their default state
-        /// </summary>
-        private void ResetUI()
-        {
-            if (uiManager != null)
-            {
-                uiManager.ResetUI();
-                uiManager.UpdateStatusDisplays(currentRound, currentWins);
-                uiManager.UpdateTargetScore(currentTargetScore);
-                uiManager.SetGameStatus(GameParameters.SHUFFLING_TEXT);
-            }
-        }
-
-        /// <summary>
-        /// Begins a new game, initializing all necessary components
-        /// </summary>
-        public void BeginGame()
-        {
-            currentGameState = GameState.WaitingToStart;
-            isDealing = true;
-
-            if (!ValidateGameComponents()) return;
-
-            InitializeCardSlots();
-            ResetPlayerSlots();
-
-            deck?.ShuffleDeck();
-            StartCoroutine(DealInitialCards());
-        }
-
         /// <summary>
         /// Deals the initial cards to both player and dealer
         /// </summary>
@@ -319,9 +275,130 @@ namespace CardGame
             }
 
             isDealing = false;
-            currentGameState = GameState.PlayerTurn;
-            SetPlayerButtonsInteractable(true);
+            
+            // Properly transition to player turn
+            yield return StartCoroutine(TransitionToState(GameState.PlayerTurn));
+
+            // Show tutorial if this is round 1 and we haven't shown it yet
+            Debug.Log($"Checking tutorial condition - Current Round: {currentRound}");
+            if (currentRound == 1 && !hasShownFirstGameTutorial)
+            {
+                Debug.Log("Showing tutorial for first game...");
+                hasShownFirstGameTutorial = true;
+                uiManager?.ShowTutorial();
+            }
+            
             uiManager?.UpdateUI();
+        }
+
+        /// <summary>
+        /// Resets the state variables for a new round
+        /// </summary>
+        private void ResetRoundState()
+        {
+            isDealing = false;
+            isReturningCards = false;
+            isRandomizingTarget = false;
+            isTransitioningState = false;
+            isPlayerWinner = false;
+            isPausedForTutorial = false;
+        }
+
+        /// <summary>
+        /// Resets the game state, optionally performing a full reset
+        /// </summary>
+        /// <param name="fullReset">If true, resets all progress including rounds and wins</param>
+        private void ResetGame(bool fullReset = false)
+        {
+            // Always reset round to 1 if dealer won (when player has 0 wins)
+            bool shouldResetRound = fullReset || currentWins == 0;
+            
+            if (shouldResetRound)
+            {
+                currentRound = 1;
+                // Round 1 always uses default target score (21)
+                currentTargetScore = GameParameters.DEFAULT_TARGET_SCORE;
+                Debug.Log("Reset to Round 1 - Using default target score (21)");
+            }
+
+            if (fullReset)
+            {
+                currentWins = 0;
+                hasShownFirstGameTutorial = false;  // Reset tutorial flag on full reset
+            }
+
+            // Reset state
+            ResetRoundState();
+            
+            // Clear hands
+            ClearPlayerHands();
+            
+            // Reset UI
+            ResetUI();
+            
+            // Reset dealer and begin new game
+            dealer?.ResetInitialDelay();
+        }
+
+        /// <summary>
+        /// Clears the hands of both player and dealer
+        /// </summary>
+        private void ClearPlayerHands()
+        {
+            playerPlayer?.ClearHand();
+            dealerPlayer?.ClearHand();
+        }
+
+        /// <summary>
+        /// Resets all UI elements to their default state
+        /// </summary>
+        private void ResetUI()
+        {
+            if (uiManager != null)
+            {
+                uiManager.ResetUI();
+                uiManager.UpdateStatusDisplays(currentRound, currentWins);
+                uiManager.UpdateTargetScore(currentTargetScore);
+                uiManager.SetGameStatus(GameParameters.SHUFFLING_TEXT);
+            }
+        }
+
+        /// <summary>
+        /// Begins a new game, initializing all necessary components
+        /// </summary>
+        public void BeginGame()
+        {
+            // Stop any existing coroutines
+            StopAllCoroutines();
+            
+            // Reset the game state
+            ResetGame(true);
+            
+            if (!ValidateGameComponents()) return;
+
+            // Initialize UI and game components
+            InitializeCardSlots();
+            ResetPlayerSlots();
+            uiManager?.UpdateStatusDisplays(currentRound, currentWins, true);
+            uiManager?.UpdateTargetScore(currentTargetScore);
+
+            // Start the game initialization sequence
+            StartCoroutine(InitializeGameSequence());
+            
+            Debug.Log("Game initialization started");
+        }
+
+        private IEnumerator InitializeGameSequence()
+        {
+            // First transition to waiting state
+            yield return StartCoroutine(TransitionToState(GameState.WaitingToStart));
+            
+            // Set dealing flag and shuffle
+            isDealing = true;
+            deck?.ShuffleDeck();
+            
+            // Start dealing cards
+            yield return StartCoroutine(DealInitialCards());
         }
 
         /// <summary>
@@ -434,6 +511,9 @@ namespace CardGame
                 currentGameState = newState;
                 switch (newState)
                 {
+                    case GameState.WaitingToStart:
+                        uiManager?.SetGameStatus(GameParameters.SHUFFLING_TEXT);
+                        break;
                     case GameState.PlayerTurn:
                         SetPlayerButtonsInteractable(true);
                         uiManager?.SetGameStatus("Your turn");
@@ -649,40 +729,41 @@ namespace CardGame
 
         private IEnumerator ReturnAllCardsToDeck()
         {
-            if (isReturningCards) yield break;
             isReturningCards = true;
 
-            Debug.Log("Returning cards to deck...");
+            // Get all cards from both players
+            var allCards = new List<Card>();
+            allCards.AddRange(playerPlayer.GetAllCards());
+            allCards.AddRange(dealerPlayer.GetAllCards());
 
-            // Return dealer cards
-            var dealerCards = new List<Card>(dealerPlayer.GetHand());
-            foreach (Card card in dealerCards)
+            // Start all card return animations simultaneously
+            var returnTasks = new List<Coroutine>();
+            foreach (Card card in allCards)
             {
                 if (card != null)
                 {
-                    yield return ReturnCardToDeck(card);
+                    // Set parent and start return animation
+                    card.transform.SetParent(deck.transform);
+                    returnTasks.Add(StartCoroutine(card.ReturnToDeck(deck.transform.position)));
                 }
             }
 
-            // Return player cards
-            var playerCards = new List<Card>(playerPlayer.GetHand());
-            foreach (Card card in playerCards)
-            {
-                if (card != null)
-                {
-                    yield return ReturnCardToDeck(card);
-                }
-            }
-
+            // Clear hands immediately since we have the cards in our allCards list
             dealerPlayer.ClearHand();
             playerPlayer.ClearHand();
             ResetPlayerSlots();
 
-            // Ensure deck is reloaded and shuffled after all cards are returned
-            deck.ReloadAndShuffle();
+            // Wait for all return animations to complete
+            yield return new WaitForSeconds(GameParameters.CARD_RETURN_DURATION);
+
+            // First reload the cards to ensure all are found
+            deck.LoadCards();
+            
+            // Then shuffle the deck
+            deck.ShuffleDeck();
 
             isReturningCards = false;
-            yield return new WaitForSeconds(GameParameters.CARD_RETURN_DURATION);
+            Debug.Log("All cards returned to deck and deck reshuffled");
         }
 
         public IEnumerator DealCardToPlayer()
@@ -758,51 +839,57 @@ namespace CardGame
             }
 
             // Start dealer play loop as a tracked coroutine
-            dealerPlayCoroutine = StartCoroutine(DealerPlayLoop());
+            dealerPlayCoroutine = StartCoroutine(_DealerPlayLoop());
             yield return dealerPlayCoroutine;
         }
 
-        private IEnumerator DealerPlayLoop()
+        private IEnumerator _DealerPlayLoop()
         {
-            while (true)
+            Debug.Log("Starting dealer play loop");
+            
+            while (currentGameState == GameState.DealerTurn && !isPaused && !isPausedForTutorial)
             {
-                int dealerScore = dealerPlayer.GetHandValue();
-                int playerScore = playerPlayer.GetHandValue();
-                
-                // Check if dealer should hit based on their strategy
-                if (!dealerPlayer.ShouldHit())
+                // Check if dealer should hit
+                if (dealerPlayer.ShouldHit())
                 {
-                    string message = DetermineWinMessage(dealerScore, playerScore);
-                    yield return StartCoroutine(HandleEndGame(message));
+                    uiManager?.ShowDealerThinking();
+                    yield return new WaitForSeconds(dealerPlayDelay);
+                    
+                    // Deal a card to dealer
+                    yield return StartCoroutine(DealCardToDealer());
+                    
+                    // Check for bust or target score
+                    int dealerScore = dealerPlayer.GetHandValue();
+                    if (dealerScore > currentTargetScore)
+                    {
+                        yield return StartCoroutine(HandleEndGame($"Player wins! Dealer busted with {dealerScore}"));
+                        yield break;
+                    }
+                    else if (dealerScore == currentTargetScore)
+                    {
+                        yield return StartCoroutine(HandleEndGame($"Dealer wins with {dealerScore}!"));
+                        yield break;
+                    }
+                }
+                else
+                {
+                    // Dealer stands, determine winner
+                    int dealerScore = dealerPlayer.GetHandValue();
+                    int playerScore = playerPlayer.GetHandValue();
+                    yield return StartCoroutine(HandleEndGame(DetermineWinMessage(dealerScore, playerScore)));
                     yield break;
                 }
-
-                // Dealer needs to hit
-                yield return new WaitForSeconds(dealerPlayDelay);
                 
-                // Check if we still have cards available
-                Card nextCard = deck.DrawCard();
-                if (nextCard == null)
-                {
-                    Debug.LogWarning("Dealer cannot hit - no cards available. Ending turn.");
-                    string message = DetermineWinMessage(dealerScore, playerScore);
-                    yield return StartCoroutine(HandleEndGame(message));
-                    yield break;
-                }
-                
-                // Return the card and deal it properly
-                yield return StartCoroutine(deck.ReturnCard(nextCard));
-                yield return StartCoroutine(DealCardToDealer());
-                
-                // Check if dealer busted after hitting
-                dealerScore = dealerPlayer.GetHandValue();
-                if (dealerScore > currentTargetScore)
-                {
-                    string message = $"Player wins! Dealer busted with {dealerScore}";
-                    yield return StartCoroutine(HandleEndGame(message));
-                    yield break;
-                }
+                yield return new WaitForSeconds(0.5f);
             }
+        }
+        
+        /// <summary>
+        /// Makes DealerPlayLoop accessible to UIManager
+        /// </summary>
+        public IEnumerator DealerPlayLoop()
+        {
+            return _DealerPlayLoop();
         }
 
         private string DetermineWinMessage(int dealerScore, int playerScore)
@@ -840,7 +927,7 @@ namespace CardGame
         {
             if (dealerPlayer == null) yield break;
 
-            var dealerCards = dealerPlayer.GetHand();
+            var dealerCards = dealerPlayer.GetAllCards();
             if (dealerCards.Count == 0) yield break;
 
             // Find all face down cards
@@ -1044,8 +1131,22 @@ namespace CardGame
         #endregion
 
         #region UI and Audio
+        public void PauseForTutorial(bool pause)
+        {
+            isPausedForTutorial = pause;
+            SetPlayerButtonsInteractable(!pause);
+        }
+
         public void SetPlayerButtonsInteractable(bool interactable)
         {
+            if (isPausedForTutorial)
+            {
+                interactable = false;
+            }
+            if (isPaused)
+            {
+                interactable = false;
+            }
             hitButton?.IsInteractable(interactable);
             standButton?.IsInteractable(interactable);
         }
@@ -1058,6 +1159,20 @@ namespace CardGame
         public void PlayBadMoveLine()
         {
             audioManager?.PlayRandomVoiceLine(audioManager.badMoveVoiceClips);
+        }
+        
+        public void SetGamePaused(bool paused)
+        {
+            isPaused = paused;
+            
+            // Disable player interaction while paused
+            SetPlayerButtonsInteractable(!paused);
+            
+            // Stop any ongoing dealer actions if needed
+            if (paused && dealer != null)
+            {
+                StopAllCoroutines();
+            }
         }
         #endregion
 
