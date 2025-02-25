@@ -40,6 +40,10 @@ namespace CardGame
         private Queue<IEnumerator> animationQueue = new Queue<IEnumerator>();
         private bool isProcessingAnimations = false;
         private Dictionary<Transform, Coroutine> activeEmphasisAnimations = new Dictionary<Transform, Coroutine>();
+        
+        // Target score pulsing animation
+        private Coroutine targetScorePulseCoroutine;
+        private bool isTargetScorePulsing = false;
 
         private void Start()
         {
@@ -84,6 +88,9 @@ namespace CardGame
             }
             
             ResetUI();
+            
+            // Start the target score pulsing animation
+            StartTargetScorePulseAnimation();
         }
 
         private void Update()
@@ -129,6 +136,9 @@ namespace CardGame
                     currentVideoPlayer.Play();
                 }
             }
+            
+            // Check if we need to start or stop the target score pulse animation
+            UpdateTargetScorePulseState();
         }
 
         public void SetGameStatus(string status)
@@ -950,6 +960,9 @@ namespace CardGame
                 renderTexture.Release();
                 Destroy(renderTexture);
             }
+            
+            // Stop the target score pulse animation
+            StopTargetScorePulseAnimation();
         }
 
         private void CleanupTutorial()
@@ -989,6 +1002,144 @@ namespace CardGame
             
             // Ensure game is fully unpaused
             UnpauseGame();
+        }
+        
+        // Checks if the target score pulse animation should be running based on game state
+        private void UpdateTargetScorePulseState()
+        {
+            if (gameManager == null || targetScoreText == null) return;
+            
+            GameState currentState = gameManager.GetCurrentGameState();
+            bool shouldPulse = (currentState == GameState.Playing || 
+                               currentState == GameState.InitialDeal || 
+                               currentState == GameState.PlayerTurn || 
+                               currentState == GameState.DealerTurn) && 
+                               !gameManager.IsReturnOrRandomizing();
+            
+            if (shouldPulse && !isTargetScorePulsing)
+            {
+                StartTargetScorePulseAnimation();
+            }
+            else if (!shouldPulse && isTargetScorePulsing)
+            {
+                StopTargetScorePulseAnimation();
+            }
+        }
+        
+        // Starts the continuous pulse animation for the target score
+        private void StartTargetScorePulseAnimation()
+        {
+            if (targetScoreText == null || isTargetScorePulsing) return;
+            
+            StopTargetScorePulseAnimation(); // Ensure any existing animation is stopped
+            targetScorePulseCoroutine = StartCoroutine(TargetScorePulseAnimation());
+            isTargetScorePulsing = true;
+            
+            Debug.Log("Started target score pulse animation");
+        }
+        
+        // Stops the continuous pulse animation for the target score
+        private void StopTargetScorePulseAnimation()
+        {
+            if (targetScorePulseCoroutine != null)
+            {
+                StopCoroutine(targetScorePulseCoroutine);
+                targetScorePulseCoroutine = null;
+                Debug.Log("Stopped target score pulse animation");
+            }
+            
+            // Reset to original appearance
+            if (targetScoreText != null)
+            {
+                // Reset scale in case it was modified in previous versions
+                targetScoreText.transform.localScale = Vector3.one;
+                
+                // Reset color to white if it was changed
+                targetScoreText.color = Color.white;
+                
+                // Reset font size to a reasonable default if needed
+                // We don't know the original size here, so we'll use a common default
+                // The coroutine will set the proper size when it runs again
+                if (targetScoreText.fontSize > 50) // If it seems enlarged
+                {
+                    targetScoreText.fontSize = 36; // Common default size
+                }
+            }
+            
+            isTargetScorePulsing = false;
+        }
+        
+        // Continuously pulses the target score text to draw attention to it
+        private IEnumerator TargetScorePulseAnimation()
+        {
+            if (targetScoreText == null) yield break;
+            
+            Debug.Log("Starting target score pulse animation");
+            
+            // Store original color and create target color with higher intensity
+            Color originalColor = targetScoreText.color;
+            Color brightColor = new Color(
+                Mathf.Min(originalColor.r + 0.3f, 1f),
+                Mathf.Min(originalColor.g + 0.3f, 1f),
+                Mathf.Min(originalColor.b + 0.3f, 1f),
+                originalColor.a
+            );
+            
+            // Store original font size and calculate target size
+            float originalFontSize = targetScoreText.fontSize;
+            float targetFontSize = originalFontSize * 1.1f; // 10% larger font
+            
+            float pulseDuration = 1.0f; // Total time for one pulse cycle
+            
+            Debug.Log($"Pulse animation setup - Original color: {originalColor}, Bright color: {brightColor}");
+            Debug.Log($"Original font size: {originalFontSize}, Target font size: {targetFontSize}");
+            
+            while (true) // Continuous animation until stopped
+            {
+                // Check if we should stop the animation
+                if (gameManager != null && gameManager.IsReturnOrRandomizing())
+                {
+                    // Reset to original values
+                    targetScoreText.color = originalColor;
+                    targetScoreText.fontSize = originalFontSize;
+                    isTargetScorePulsing = false;
+                    Debug.Log("Stopping target score pulse animation due to randomization");
+                    yield break;
+                }
+                
+                // Brighten and increase font size phase
+                float elapsed = 0f;
+                while (elapsed < pulseDuration / 2)
+                {
+                    elapsed += Time.deltaTime;
+                    float t = elapsed / (pulseDuration / 2);
+                    float smoothT = Mathf.SmoothStep(0, 1, t); // Smooth step for more natural animation
+                    
+                    // Lerp color and font size
+                    targetScoreText.color = Color.Lerp(originalColor, brightColor, smoothT);
+                    targetScoreText.fontSize = Mathf.Lerp(originalFontSize, targetFontSize, smoothT);
+                    
+                    yield return null;
+                }
+                
+                // Dim and decrease font size phase
+                elapsed = 0f;
+                while (elapsed < pulseDuration / 2)
+                {
+                    elapsed += Time.deltaTime;
+                    float t = elapsed / (pulseDuration / 2);
+                    float smoothT = Mathf.SmoothStep(0, 1, t);
+                    
+                    // Lerp color and font size back
+                    targetScoreText.color = Color.Lerp(brightColor, originalColor, smoothT);
+                    targetScoreText.fontSize = Mathf.Lerp(targetFontSize, originalFontSize, smoothT);
+                    
+                    yield return null;
+                }
+                
+                // Small pause between pulses
+                yield return new WaitForSeconds(0.2f);
+            }
         }
     }
 }

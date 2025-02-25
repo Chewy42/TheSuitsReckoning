@@ -59,6 +59,7 @@ namespace CardGame
         private bool isReturningCards;
         private bool isRandomizingTarget;
         private bool isPlayerWinner;
+        private bool isPush; // New flag to track push/tie games
         private bool isTransitioningState;
         private bool isShuttingDown;
         private bool isPausedForTutorial = false;
@@ -268,9 +269,17 @@ namespace CardGame
                 Transform slot = dealerPlayer.GetNextAvailableSlot();
                 if (slot != null)
                 {
+                    Debug.Log("Setting dealer's second card face down");
                     dealerCard.SetFaceDown(true);
+                    
+                    // Verify the card is face down
+                    Debug.Log($"Dealer's second card: {dealerCard.rank} of {dealerCard.suit}, Face down: {dealerCard.IsFaceDown()}, Rotation: {dealerCard.transform.rotation.eulerAngles}");
+                    
                     yield return StartCoroutine(dealer.DealCard(dealerCard, slot, true));
                     dealerPlayer.AddCardToHand(dealerCard);
+                    
+                    // Verify again after dealing
+                    Debug.Log($"After dealing - Dealer's second card: {dealerCard.rank} of {dealerCard.suit}, Face down: {dealerCard.IsFaceDown()}, Rotation: {dealerCard.transform.rotation.eulerAngles}");
                 }
             }
 
@@ -301,17 +310,18 @@ namespace CardGame
             isRandomizingTarget = false;
             isTransitioningState = false;
             isPlayerWinner = false;
+            isPush = false; // Reset push state
             isPausedForTutorial = false;
         }
 
         /// <summary>
         /// Resets the game state, optionally performing a full reset
         /// </summary>
-        /// <param name="fullReset">If true, resets all progress including rounds and wins</param>
+        /// <param name="fullReset">If true, resets progress except for wins</param>
         private void ResetGame(bool fullReset = false)
         {
-            // Always reset round to 1 if dealer won (when player has 0 wins)
-            bool shouldResetRound = fullReset || currentWins == 0;
+            // Always reset round to 1 if dealer won or it's a full reset
+            bool shouldResetRound = fullReset || !isPlayerWinner;
             
             if (shouldResetRound)
             {
@@ -323,8 +333,8 @@ namespace CardGame
 
             if (fullReset)
             {
-                currentWins = 0;
-                hasShownFirstGameTutorial = false;  // Reset tutorial flag on full reset
+                // Only reset tutorial flag, keep wins persistent
+                hasShownFirstGameTutorial = false;
             }
 
             // Reset state
@@ -540,7 +550,7 @@ namespace CardGame
 
         private IEnumerator HandleRoundEnd()
         {
-            Debug.Log($"Handling round end - Current Round: {currentRound}, Player Winner: {isPlayerWinner}");
+            Debug.Log($"Handling round end - Current Round: {currentRound}, Player Winner: {isPlayerWinner}, Push: {isPush}");
             
             // Wait for any existing voice lines to finish
             if (audioManager != null)
@@ -585,6 +595,42 @@ namespace CardGame
                     dealerPlayer?.ResetSlots();
                 }
             }
+            else if (isPush)
+            {
+                // It's a push - restart the current round without resetting progress
+                audioManager?.PlayRandomGenericVoiceLine();
+                Debug.Log($"Push - Restarting round {currentRound}");
+                yield return new WaitForSeconds(GameParameters.GetRoundTransitionDelay(currentRound));
+                
+                // Clear the table but don't reset round number
+                isReturningCards = true;
+                yield return StartCoroutine(ReturnAllCardsToDeck());
+                isReturningCards = false;
+                
+                // Reset player states after cards are returned
+                playerPlayer?.ResetSlots();
+                dealerPlayer?.ResetSlots();
+                
+                // Start the same round again
+                yield return StartCoroutine(TransitionToState(GameState.Playing));
+                InitializeCardSlots();
+                
+                // Update UI
+                uiManager?.UpdateStatusDisplays(currentRound, currentWins, true);
+                uiManager?.SetGameStatus($"Push! Restarting Round {currentRound}...");
+                yield return new WaitForSeconds(1f);
+                uiManager?.SetGameStatus("Shuffling...");
+                
+                // Ensure deck is properly shuffled
+                deck?.ShuffleDeck();
+                
+                // Deal cards
+                isDealing = true;
+                yield return StartCoroutine(DealInitialCards());
+                
+                // Enable player controls
+                SetPlayerButtonsInteractable(true);
+            }
             else
             {
                 // Play lose voice line since dealer won
@@ -609,12 +655,8 @@ namespace CardGame
             uiManager?.SetGameStatus("Round Complete!");
             yield return new WaitForSeconds(1f);
 
-            // Return all cards with proper cleanup
+            // Return all cards and wait for completion
             yield return StartCoroutine(ReturnAllCardsToDeck());
-            
-            // Reset player states after cards are returned
-            playerPlayer?.ResetSlots();
-            dealerPlayer?.ResetSlots();
             
             isReturningCards = false;
             
@@ -635,22 +677,29 @@ namespace CardGame
                 audioManager?.PlaySound(SoundType.Win);
                 audioManager?.PlayWinVoiceLine();
                 
-                yield break; // Exit the coroutine here to prevent further processing
+                yield break;
             }
             
-            // If player lost, we've already reset currentRound to 0 in HandleDealerWin
-            // If player won, increment the round
+            // Handle round progression:
+            // - If player won, increment round
+            // - If it's a push, keep current round
+            // - If dealer won, round already reset to 1 in HandleDealerWin
             if (isPlayerWinner)
             {
                 currentRound++;
+                Debug.Log($"Player won - advancing to round {currentRound}");
+            }
+            else if (isPush)
+            {
+                Debug.Log($"Push - keeping current round {currentRound}");
             }
             else
             {
-                currentRound = 1; // Ensure we're on round 1 after a loss
+                Debug.Log($"Dealer won - round was reset to 1");
             }
             
             uiManager?.UpdateStatusDisplays(currentRound, currentWins, true);
-            Debug.Log($"Advanced to round {currentRound}");
+            Debug.Log($"Round progression - Current Round: {currentRound}, Wins: {currentWins}");
 
             // Play round transition sounds
             audioManager?.PlaySound(SoundType.RoundStart);
@@ -659,7 +708,6 @@ namespace CardGame
             // Only randomize target score for rounds 2 and 3
             if (currentRound > 1)
             {
-                // Randomize new target score
                 isRandomizingTarget = true;
                 yield return StartCoroutine(RandomizeTargetScore());
                 isRandomizingTarget = false;
@@ -730,36 +778,45 @@ namespace CardGame
         private IEnumerator ReturnAllCardsToDeck()
         {
             isReturningCards = true;
-
-            // Get all cards from both players
             var allCards = new List<Card>();
-            allCards.AddRange(playerPlayer.GetAllCards());
-            allCards.AddRange(dealerPlayer.GetAllCards());
-
-            // Start all card return animations simultaneously
-            var returnTasks = new List<Coroutine>();
-            foreach (Card card in allCards)
+            
+            // Get all cards and detach from current slots but keep references
+            foreach (var card in playerPlayer.GetAllCards().Concat(dealerPlayer.GetAllCards()))
             {
                 if (card != null)
                 {
-                    // Set parent and start return animation
-                    card.transform.SetParent(deck.transform);
-                    returnTasks.Add(StartCoroutine(card.ReturnToDeck(deck.transform.position)));
+                    allCards.Add(card);
+                    // Detach from current parent but don't destroy
+                    card.transform.SetParent(null);
                 }
             }
 
-            // Clear hands immediately since we have the cards in our allCards list
+            // Return cards one by one with animation and sound
+            foreach (Card card in allCards)
+            {
+                if (card != null && card.gameObject != null)
+                {
+                    // Keep the current card orientation instead of forcing face down
+                    // card.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+                    audioManager?.PlaySound(SoundType.CardReturn);
+                    yield return StartCoroutine(card.ReturnToDeck(deck.transform.position));
+                    if (card != null && card.gameObject != null)
+                    {
+                        // Keep the current card orientation after animation completes
+                        // card.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+                        card.transform.SetParent(deck.transform);
+                    }
+                    // Only parent to deck after animation completes
+                    yield return new WaitForSeconds(GameParameters.SEQUENTIAL_CARD_RETURN_DELAY);
+                }
+            }
+
+            // Now safe to clear hands as cards are properly parented
             dealerPlayer.ClearHand();
             playerPlayer.ClearHand();
             ResetPlayerSlots();
 
-            // Wait for all return animations to complete
-            yield return new WaitForSeconds(GameParameters.CARD_RETURN_DURATION);
-
-            // First reload the cards to ensure all are found
             deck.LoadCards();
-            
-            // Then shuffle the deck
             deck.ShuffleDeck();
 
             isReturningCards = false;
@@ -804,8 +861,12 @@ namespace CardGame
                 yield break;
             }
 
-            // During dealer's turn, all cards should be face up
-            bool faceDown = false;
+            // In blackjack, only the dealer's second card should be face down
+            // First card is always face up
+            bool faceDown = isDealing && dealerPlayer.GetAllCards().Count == 1;
+            
+            Debug.Log($"Dealing card to dealer - Face down: {faceDown}, Card count: {dealerPlayer.GetAllCards().Count}");
+            
             card.SetFaceDown(faceDown);
             yield return StartCoroutine(dealer.DealCard(card, slot, faceDown));
             dealerPlayer.AddCardToHand(card);
@@ -825,6 +886,10 @@ namespace CardGame
             
             uiManager?.SetGameStatus("Dealer's Turn");
             
+            // Play a card reveal sound before flipping
+            audioManager?.PlaySound(SoundType.CardFlip);
+            
+            // Reveal dealer's hidden cards
             yield return StartCoroutine(FlipDealerCard());
             yield return new WaitForSeconds(1f);
 
@@ -918,29 +983,97 @@ namespace CardGame
                 return $"Player wins with {playerScore}!";
             }
             
-            // Handle tie - dealer wins by house rules
-            ProcessWin(false);
-            return $"Tie at {playerScore}! Dealer wins!";
+            // Handle tie - now call it a Push and set a special flag
+            ProcessPush();
+            return $"Push at {playerScore}! Tie game!";
         }
 
         private IEnumerator FlipDealerCard()
         {
-            if (dealerPlayer == null) yield break;
+            Debug.Log("FlipDealerCard called - Starting to flip dealer cards");
+            
+            if (dealerPlayer == null)
+            {
+                Debug.LogError("Dealer player is null");
+                yield break;
+            }
 
             var dealerCards = dealerPlayer.GetAllCards();
-            if (dealerCards.Count == 0) yield break;
+            Debug.Log($"Dealer has {dealerCards.Count} cards in hand");
+            
+            if (dealerCards.Count == 0)
+            {
+                Debug.LogError("Dealer has no cards");
+                yield break;
+            }
+            
+            // Log all dealer cards and their face-down status
+            for (int i = 0; i < dealerCards.Count; i++)
+            {
+                var card = dealerCards[i];
+                if (card == null)
+                {
+                    Debug.LogError($"Dealer card at index {i} is null");
+                    continue;
+                }
+                
+                Debug.Log($"Dealer card {i}: {card.rank} of {card.suit}, Face down: {card.IsFaceDown()}, Rotation: {card.transform.rotation.eulerAngles}");
+            }
 
             // Find all face down cards
             var faceDownCards = dealerCards.Where(card => card != null && card.IsFaceDown()).ToList();
             
-            // Flip each face down card with a small delay between flips
+            Debug.Log($"Found {faceDownCards.Count} face down dealer cards");
+            
+            // If no face-down cards were found but we have at least 2 cards, flip the second card
+            if (faceDownCards.Count == 0 && dealerCards.Count >= 2)
+            {
+                Debug.Log("No face down cards found, but flipping the second card anyway");
+                var secondCard = dealerCards[1];
+                
+                // Force the card to be face down before flipping
+                secondCard.SetFaceDown(true);
+                
+                // Add to face down cards list
+                faceDownCards.Add(secondCard);
+            }
+            else if (faceDownCards.Count == 0)
+            {
+                Debug.LogWarning("No face down dealer cards to flip and not enough cards to force flip");
+                yield break;
+            }
+            
+            // Add a small dramatic pause before flipping
+            yield return new WaitForSeconds(0.5f);
+            
+            // Flip each face down card with a sound effect
             foreach (var card in faceDownCards)
             {
+                Debug.Log($"Flipping dealer card: {card.rank} of {card.suit}");
+                
+                // Play a sound effect for the card flip
                 audioManager?.PlaySound(SoundType.CardFlip);
+                
+                // Flip the card
                 yield return StartCoroutine(card.FlipCard());
+                
+                // Log the card state after flipping
+                Debug.Log($"After flip - Card: {card.rank} of {card.suit}, Face down: {card.IsFaceDown()}, Rotation: {card.transform.rotation.eulerAngles}");
+                
+                // Update UI after the card is flipped
                 uiManager?.UpdateScores();
-                yield return new WaitForSeconds(GameParameters.CARD_FLIP_DURATION);
+                
+                // Add a small delay between flips if there are multiple cards
+                if (faceDownCards.Count > 1)
+                {
+                    yield return new WaitForSeconds(GameParameters.CARD_FLIP_DURATION);
+                }
             }
+            
+            Debug.Log("Finished flipping dealer cards");
+            
+            // Play a dealer voice line after all cards are flipped
+            audioManager?.PlayRandomGenericVoiceLine();
         }
 
         /// <summary>
@@ -994,9 +1127,8 @@ namespace CardGame
         /// </summary>
         private void HandleDealerWin()
         {
-            currentWins = 0;
-            currentRound = 0; // Reset to 0 since we increment in ProcessIntermission
-            uiManager?.ResetWins();
+            // Set round to 1 on dealer win, but don't reset wins
+            currentRound = 1;
             uiManager?.UpdateStatusDisplays(currentRound, currentWins, true);
             
             // Play dealer's win voice line
@@ -1072,6 +1204,10 @@ namespace CardGame
             else if (message.Contains("Dealer wins"))
             {
                 ProcessWin(false);
+            }
+            else if (message.Contains("Push"))
+            {
+                ProcessPush();
             }
         }
         #endregion
@@ -1211,6 +1347,20 @@ namespace CardGame
                 ProcessWin(true);
                 yield return StartCoroutine(HandleEndGame($"Player wins! Dealer busted with {dealerScore}"));
             }
+        }
+
+        /// <summary>
+        /// Handles processing when it's a push (tie)
+        /// </summary>
+        private void ProcessPush()
+        {
+            // Set the flags accordingly - not a player win, but a push
+            isPlayerWinner = false;
+            isPush = true;
+            Debug.Log("Game result: Push (Tie)");
+            
+            // Don't reset wins when it's a push, just play voice line
+            audioManager?.PlayRandomGenericVoiceLine();
         }
     }
 }

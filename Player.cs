@@ -87,12 +87,8 @@ namespace CardGame {
             Debug.Log($"{playerType} received card: {card.rank} of {card.suit}");
         }
 
-        public void ClearHand() {
-            foreach (Card card in hand) {
-                if (card != null && card.gameObject != null) {
-                    GameManager.Instance.ReturnCardToDeck(card);
-                }
-            }
+        public virtual void ClearHand()
+        {
             hand.Clear();
             nextSlotIndex = 0;
             Debug.Log($"{playerType} hand cleared");

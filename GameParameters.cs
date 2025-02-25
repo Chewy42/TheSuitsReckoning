@@ -26,7 +26,7 @@ namespace CardGame
         /// <summary>
         /// Duration for a card to return to deck (seconds)
         /// </summary>
-        public const float CARD_RETURN_DURATION = 0.5f;
+        public const float CARD_RETURN_DURATION = 0.15f;
 
         /// <summary>
         /// Delay between returning cards to deck (seconds)
@@ -37,6 +37,16 @@ namespace CardGame
         /// Duration of card flip animation (seconds)
         /// </summary>
         public const float CARD_FLIP_DURATION = 0.15f;
+
+        /// <summary>
+        /// Delay between sequential card returns to deck (seconds)
+        /// </summary>
+        public const float SEQUENTIAL_CARD_RETURN_DELAY = 0.2f;
+
+        /// <summary>
+        /// Duration for a single card return animation (seconds)
+        /// </summary>
+        public const float CARD_RETURN_ANIMATION_DURATION = 0.2f;
         #endregion
 
         #region Dealer Parameters
@@ -85,12 +95,17 @@ namespace CardGame
         /// <summary>
         /// X rotation when card is face up (degrees)
         /// </summary>
-        public const float FACE_UP_X_ROTATION = 0f;
+        public const float FACE_UP_X_ROTATION = -90f;
         
         /// <summary>
         /// X rotation when card is face down (degrees)
         /// </summary>
-        public const float FACE_DOWN_X_ROTATION = 180f;
+        public const float FACE_DOWN_X_ROTATION = 90f;
+
+        /// <summary>
+        /// X rotation when card is in deck (degrees)
+        /// </summary>
+        public const float CARD_IN_DECK_X_ROTATION = 90f;
 
         /// <summary>
         /// Delay before playing card deal animation

@@ -71,33 +71,53 @@ namespace CardGame {
                 transform.localPosition = targetPosition;
         }
 
+
+
         public IEnumerator ReturnToDeck(Vector3 deckPosition)
         {
+            // Wait for 0.15 seconds before starting the movement
+            yield return new WaitForSeconds(0.15f);
+
             Vector3 startPosition = transform.position;
+            Quaternion startRotation = transform.rotation;
             float elapsed = 0f;
             
             while (elapsed < GameParameters.CARD_RETURN_DURATION)
             {
                 float t = elapsed / GameParameters.CARD_RETURN_DURATION;
                 transform.position = Vector3.Lerp(startPosition, deckPosition, t);
+                // Keep the rotation consistent during the animation
+                transform.rotation = startRotation;
                 elapsed += Time.deltaTime;
                 yield return null;
             }
 
             transform.position = deckPosition;
+            // Keep the current face up/down state instead of forcing face down
         }
 
         public IEnumerator FlipCard(bool instant = false)
         {
-            if (isBeingFlipped) yield break;
+            if (isBeingFlipped)
+            {
+                Debug.LogWarning("Card is already being flipped, ignoring request");
+                yield break;
+            }
+            
             isBeingFlipped = true;
+            Debug.Log($"Starting to flip card: {rank} of {suit}, Currently face down: {isFaceDown}, Current rotation: {transform.rotation.eulerAngles}");
 
+            // Determine the target rotation based on the current face down state
+            float targetXRotation = isFaceDown ? -90f : 90f;  // Flip from face down to face up or vice versa
             Quaternion startRotation = transform.rotation;
-            Quaternion endRotation = Quaternion.Euler(new Vector3(isFaceDown ? -90f : 90f, 0f, 0f));
+            Quaternion endRotation = Quaternion.Euler(new Vector3(targetXRotation, 0f, 0f));
+            
+            Debug.Log($"Flipping from {startRotation.eulerAngles} to {endRotation.eulerAngles}");
             
             if (instant)
             {
                 transform.rotation = endRotation;
+                Debug.Log("Instant flip completed");
             }
             else
             {
@@ -110,9 +130,33 @@ namespace CardGame {
                     elapsed += Time.deltaTime;
                     yield return null;
                 }
+                
+                // Ensure we reach the exact target rotation
                 transform.rotation = endRotation;
+                Debug.Log("Animated flip completed");
             }
 
+            // Toggle the face down state
+            isFaceDown = !isFaceDown;
+            Debug.Log($"Card flipped. Now face down: {isFaceDown}, Final rotation: {transform.rotation.eulerAngles}");
+            
+            isBeingFlipped = false;
+        }
+
+        private IEnumerator FlipCardCoroutine() {
+            float elapsed = 0f;
+            float duration = 0.5f;
+            Vector3 startRotation = transform.rotation.eulerAngles;
+            Vector3 endRotation = new Vector3(startRotation.x == 0 ? 180 : 0, startRotation.y, startRotation.z);
+
+            while (elapsed < duration) {
+                float t = elapsed / duration;
+                transform.rotation = Quaternion.Euler(Vector3.Lerp(startRotation, endRotation, t));
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
+
+            transform.rotation = Quaternion.Euler(endRotation);
             isFaceDown = !isFaceDown;
             isBeingFlipped = false;
         }
@@ -134,7 +178,7 @@ namespace CardGame {
             if (transform != null) {
                 // Reset position and rotation relative to parent
                 transform.localPosition = Vector3.zero;
-                transform.localRotation = Quaternion.Euler(GameParameters.FACE_DOWN_X_ROTATION, 0f, 0f);
+                transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
             }
             isFaceDown = true;
         }
@@ -146,13 +190,23 @@ namespace CardGame {
             }
             
             if (transform.parent.GetComponent<Deck>() != null) {
-                // Card is being returned to deck, ensure proper positioning
-                ResetState();
+                // Card is being returned to deck, only reset position but keep orientation
+                if (transform != null) {
+                    // Reset position relative to parent but keep rotation
+                    transform.localPosition = Vector3.zero;
+                    // Don't reset rotation or face down state
+                }
             }
         }
 
         private void OnEnable() {
-            ResetState();
+            // Only reset state when the card is first enabled, not when returning to deck
+            if (transform.parent != null && transform.parent.GetComponent<Deck>() != null) {
+                // Only reset position but keep orientation
+                if (transform != null) {
+                    transform.localPosition = Vector3.zero;
+                }
+            }
         }
 
         public bool IsFaceDown() {
