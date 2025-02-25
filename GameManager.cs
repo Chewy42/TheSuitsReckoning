@@ -99,6 +99,24 @@ namespace CardGame
         private Coroutine intermissionCoroutine;
         #endregion
 
+        #region Animation Speed Helpers
+        // Helper method to get adjusted delay based on animation speed setting
+        private float GetAdjustedDelay(float originalDelay)
+        {
+            if (uiManager != null && uiManager.IsDoubleDealingSpeedEnabled())
+            {
+                return originalDelay * uiManager.GetAnimationSpeedMultiplier();
+            }
+            return originalDelay;
+        }
+
+        // Helper method to create WaitForSeconds with adjusted time
+        private WaitForSeconds GetAdjustedWaitForSeconds(float seconds)
+        {
+            return new WaitForSeconds(GetAdjustedDelay(seconds));
+        }
+        #endregion
+
         #region Properties
         /// <summary>Gets the current round number</summary>
         public int GetCurrentRound() => currentRound;
@@ -238,15 +256,15 @@ namespace CardGame
         /// </summary>
         private IEnumerator DealInitialCards()
         {
-            yield return new WaitForSeconds(GameParameters.INITIAL_DEAL_DELAY);
+            yield return GetAdjustedWaitForSeconds(GameParameters.INITIAL_DEAL_DELAY);
 
             // Deal first card to player
             yield return StartCoroutine(DealCardToPlayer());
-            yield return new WaitForSeconds(GameParameters.DELAY_BETWEEN_CARDS);
+            yield return GetAdjustedWaitForSeconds(GameParameters.DELAY_BETWEEN_CARDS);
 
             // Deal first card to dealer
             yield return StartCoroutine(DealCardToDealer());
-            yield return new WaitForSeconds(GameParameters.DELAY_BETWEEN_CARDS);
+            yield return GetAdjustedWaitForSeconds(GameParameters.DELAY_BETWEEN_CARDS);
 
             // Deal second card to player
             yield return StartCoroutine(DealCardToPlayer());
@@ -260,7 +278,7 @@ namespace CardGame
                 yield break;
             }
             
-            yield return new WaitForSeconds(GameParameters.DELAY_BETWEEN_CARDS);
+            yield return GetAdjustedWaitForSeconds(GameParameters.DELAY_BETWEEN_CARDS);
 
             // Deal second card to dealer (face down)
             Card dealerCard = deck.DrawCard();
@@ -558,7 +576,7 @@ namespace CardGame
                 float currentVoiceDuration = audioManager.GetCurrentVoiceClipDuration();
                 if (currentVoiceDuration > 0)
                 {
-                    yield return new WaitForSeconds(currentVoiceDuration);
+                    yield return GetAdjustedWaitForSeconds(currentVoiceDuration);
                 }
             }
 
@@ -570,14 +588,14 @@ namespace CardGame
                 if (currentRound < GameParameters.MAX_ROUNDS)
                 {
                     Debug.Log($"Advancing to round {currentRound + 1}");
-                    yield return new WaitForSeconds(GameParameters.GetRoundTransitionDelay(currentRound));
+                    yield return GetAdjustedWaitForSeconds(GameParameters.GetRoundTransitionDelay(currentRound));
                     yield return StartCoroutine(ProcessIntermission());
                 }
                 else
                 {
                     Debug.Log("Game complete!");
                     uiManager?.SetGameStatus("Congratulations! Game Complete!");
-                    yield return new WaitForSeconds(GameParameters.GetRoundTransitionDelay(currentRound));
+                    yield return GetAdjustedWaitForSeconds(GameParameters.GetRoundTransitionDelay(currentRound));
                     
                     // Instead of resetting, transition to completed state
                     yield return StartCoroutine(TransitionToState(GameState.Completed));
@@ -600,7 +618,7 @@ namespace CardGame
                 // It's a push - restart the current round without resetting progress
                 audioManager?.PlayRandomGenericVoiceLine();
                 Debug.Log($"Push - Restarting round {currentRound}");
-                yield return new WaitForSeconds(GameParameters.GetRoundTransitionDelay(currentRound));
+                yield return GetAdjustedWaitForSeconds(GameParameters.GetRoundTransitionDelay(currentRound));
                 
                 // Clear the table but don't reset round number
                 isReturningCards = true;
@@ -618,7 +636,7 @@ namespace CardGame
                 // Update UI
                 uiManager?.UpdateStatusDisplays(currentRound, currentWins, true);
                 uiManager?.SetGameStatus($"Push! Restarting Round {currentRound}...");
-                yield return new WaitForSeconds(1f);
+                yield return GetAdjustedWaitForSeconds(1f);
                 uiManager?.SetGameStatus("Shuffling...");
                 
                 // Ensure deck is properly shuffled
@@ -636,7 +654,7 @@ namespace CardGame
                 // Play lose voice line since dealer won
                 audioManager?.PlayLoseVoiceLine();
                 Debug.Log("Dealer won - Resetting to round 1");
-                yield return new WaitForSeconds(GameParameters.GetRoundTransitionDelay(currentRound));
+                yield return GetAdjustedWaitForSeconds(GameParameters.GetRoundTransitionDelay(currentRound));
                 ResetGame(true); // This will reset round to 1 and clear all progress
             }
         }
@@ -653,7 +671,7 @@ namespace CardGame
 
             // Clear the UI and update round display
             uiManager?.SetGameStatus("Round Complete!");
-            yield return new WaitForSeconds(1f);
+            yield return GetAdjustedWaitForSeconds(1f);
 
             // Return all cards and wait for completion
             yield return StartCoroutine(ReturnAllCardsToDeck());
@@ -668,7 +686,7 @@ namespace CardGame
                 uiManager?.SetGameStatus("Congratulations! You've beaten the dealer!");
                 
                 // Ensure all UI elements are properly hidden
-                yield return new WaitForSeconds(1f);
+                yield return GetAdjustedWaitForSeconds(1f);
                 
                 // Show feedback form
                 uiManager?.ShowFeedbackForm();
@@ -703,7 +721,7 @@ namespace CardGame
 
             // Play round transition sounds
             audioManager?.PlaySound(SoundType.RoundStart);
-            yield return new WaitForSeconds(GameParameters.ROUND_START_SOUND_DELAY);
+            yield return GetAdjustedWaitForSeconds(GameParameters.ROUND_START_SOUND_DELAY);
 
             // Only randomize target score for rounds 2 and 3
             if (currentRound > 1)
@@ -721,7 +739,7 @@ namespace CardGame
             
             // Update UI for new round
             uiManager?.SetGameStatus("New Round Starting...");
-            yield return new WaitForSeconds(1f);
+            yield return GetAdjustedWaitForSeconds(1f);
             uiManager?.SetGameStatus("Shuffling...");
             
             // Ensure deck is properly shuffled
@@ -758,12 +776,12 @@ namespace CardGame
         private IEnumerator PlayRoundStartSounds()
         {
             audioManager?.PlaySound(SoundType.RoundStart);
-            yield return new WaitForSeconds(GameParameters.ROUND_START_SOUND_DELAY);
+            yield return GetAdjustedWaitForSeconds(GameParameters.ROUND_START_SOUND_DELAY);
             
             if (currentRound > 1)
             {
                 audioManager?.PlayRandomGenericVoiceLine();
-                yield return new WaitForSeconds(1f);
+                yield return GetAdjustedWaitForSeconds(1f);
             }
         }
 
@@ -772,7 +790,7 @@ namespace CardGame
             if (card == null) yield break;
 
             yield return StartCoroutine(deck.ReturnCard(card));
-            yield return new WaitForSeconds(GameParameters.CARD_RETURN_DELAY);
+            yield return GetAdjustedWaitForSeconds(GameParameters.CARD_RETURN_DELAY);
         }
 
         private IEnumerator ReturnAllCardsToDeck()
@@ -807,7 +825,7 @@ namespace CardGame
                         card.transform.SetParent(deck.transform);
                     }
                     // Only parent to deck after animation completes
-                    yield return new WaitForSeconds(GameParameters.SEQUENTIAL_CARD_RETURN_DELAY);
+                    yield return GetAdjustedWaitForSeconds(GameParameters.SEQUENTIAL_CARD_RETURN_DELAY);
                 }
             }
 
@@ -891,7 +909,7 @@ namespace CardGame
             
             // Reveal dealer's hidden cards
             yield return StartCoroutine(FlipDealerCard());
-            yield return new WaitForSeconds(1f);
+            yield return GetAdjustedWaitForSeconds(1f);
 
             int playerScore = playerPlayer.GetHandValue();
             int dealerScore = dealerPlayer.GetHandValue();
@@ -918,7 +936,14 @@ namespace CardGame
                 if (dealerPlayer.ShouldHit())
                 {
                     uiManager?.ShowDealerThinking();
-                    yield return new WaitForSeconds(dealerPlayDelay);
+                    
+                    // Use the animation speed multiplier from UIManager if available
+                    float adjustedDelay = dealerPlayDelay;
+                    if (uiManager != null && uiManager.IsDoubleDealingSpeedEnabled())
+                    {
+                        adjustedDelay *= uiManager.GetAnimationSpeedMultiplier();
+                    }
+                    yield return GetAdjustedWaitForSeconds(adjustedDelay);
                     
                     // Deal a card to dealer
                     yield return StartCoroutine(DealCardToDealer());
@@ -945,7 +970,13 @@ namespace CardGame
                     yield break;
                 }
                 
-                yield return new WaitForSeconds(0.5f);
+                // Use the animation speed multiplier for this delay as well
+                float adjustedLoopDelay = 0.5f;
+                if (uiManager != null && uiManager.IsDoubleDealingSpeedEnabled())
+                {
+                    adjustedLoopDelay *= uiManager.GetAnimationSpeedMultiplier();
+                }
+                yield return GetAdjustedWaitForSeconds(adjustedLoopDelay);
             }
         }
         
@@ -1044,7 +1075,7 @@ namespace CardGame
             }
             
             // Add a small dramatic pause before flipping
-            yield return new WaitForSeconds(0.5f);
+            yield return GetAdjustedWaitForSeconds(0.5f);
             
             // Flip each face down card with a sound effect
             foreach (var card in faceDownCards)
@@ -1066,7 +1097,7 @@ namespace CardGame
                 // Add a small delay between flips if there are multiple cards
                 if (faceDownCards.Count > 1)
                 {
-                    yield return new WaitForSeconds(GameParameters.CARD_FLIP_DURATION);
+                    yield return GetAdjustedWaitForSeconds(GameParameters.CARD_FLIP_DURATION);
                 }
             }
             
@@ -1184,10 +1215,10 @@ namespace CardGame
             ProcessWinFromMessage(message);
 
             // Update UI and wait for transitions
-            yield return new WaitForSeconds(1f);
+            yield return GetAdjustedWaitForSeconds(1f);
             uiManager?.SetGameStatus(message);
 
-            yield return new WaitForSeconds(2f);
+            yield return GetAdjustedWaitForSeconds(2f);
             StartCoroutine(ProcessIntermission());
         }
 
@@ -1326,7 +1357,7 @@ namespace CardGame
             {
                 // Play shocked voice line first for instant win
                 audioManager?.PlayShockedVoiceLine();
-                yield return new WaitForSeconds(0.5f); // Give time for shocked voice line to play
+                yield return GetAdjustedWaitForSeconds(0.5f); // Give time for shocked voice line to play
                 ProcessWin(true);
                 yield return StartCoroutine(HandleEndGame($"Player wins with perfect {targetScore}!"));
             }

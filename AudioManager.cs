@@ -18,6 +18,8 @@ namespace CardGame
         DealerThinking,
         Win,
         Lose,
+        ButtonClick,
+        ButtonHover,
     }
 
     public class AudioManager : MonoBehaviour
@@ -40,6 +42,11 @@ namespace CardGame
         public AudioClip playerTurnSound;
         public AudioClip[] dealerThinkingSounds;
 
+        [Header("UI Sounds")]
+        public AudioClip buttonClickSound;
+        public AudioClip buttonHoverSound;
+        [Range(0f, 1f)] public float uiSoundVolume = 0.5f;
+
         [Header("Dealer Voice Lines")]
         public AudioClip[] genericVoiceClips;
         public AudioClip[] goodMoveVoiceClips;
@@ -49,6 +56,8 @@ namespace CardGame
         [Header("Audio Settings")]
         [Range(0f, 1f)] public float cardSoundVolume = 0.7f;
         [Range(0f, 1f)] public float voiceLineVolume = 1f;
+        [Range(0f, 1f)] public float masterVolume = 1f;
+        [Range(0f, 1f)] public float bgMusicVolume = 0.5f;
         private const float MIN_SOUND_INTERVAL = 0.05f;
         private const float MIN_VOICE_LINE_INTERVAL = 0.3f;
         private float minGenericVoiceLineInterval = GameParameters.MIN_GENERIC_VOICE_LINE_INTERVAL;
@@ -60,6 +69,7 @@ namespace CardGame
 
         private AudioSource audioSource;
         private AudioSource voiceSource;
+        public AudioSource bgAudioSource;
         private AudioClip currentVoiceLine;
         private int currentShuffleIndex = 0;
         private const int REQUIRED_SHUFFLES = 3;
@@ -83,23 +93,35 @@ namespace CardGame
             voiceSource.playOnAwake = false;
             voiceSource.loop = false;
 
-            // If GameManager reference is not set, try to find it
+            if (bgAudioSource == null)
+            {
+                GameObject bgAudioObj = GameObject.Find("BGAudio");
+                if (bgAudioObj != null)
+                {
+                    bgAudioSource = bgAudioObj.GetComponent<AudioSource>();
+                    if (bgAudioSource != null)
+                    {
+                        Debug.Log("Found BGAudio source");
+                    }
+                }
+            }
+
             if (gameManager == null)
             {
                 gameManager = FindAnyObjectByType<GameManager>();
                 if (gameManager == null)
                 {
-                    Debug.LogWarning("AudioManager: GameManager reference not set and couldn't be found!");
+                    Debug.LogWarning("AudioManager: GameManager not found");
                 }
             }
             
-            // Initialize the time for the first generic voice line
+            UpdateAudioSourceVolumes();
+            
             SetNextGenericVoiceLineTime();
         }
 
         private void Update()
         {
-            // Check if it's time for a random generic voice line
             if (Time.time >= nextGenericVoiceLineTime && (gameManager == null || !gameManager.IsPausedForTutorial()))
             {
                 PlayRandomGenericVoiceLine();
@@ -225,7 +247,7 @@ namespace CardGame
                 var clip = voiceLineQueue.Dequeue();
                 if (clip != null && !voiceSource.isPlaying)
                 {
-                    voiceSource.volume = voiceLineVolume;
+                    voiceSource.volume = voiceLineVolume * masterVolume;
                     voiceSource.clip = clip;
                     voiceSource.Play();
                     yield return new WaitForSeconds(clip.length);
@@ -240,7 +262,7 @@ namespace CardGame
                 var (clip, delay) = soundQueue.Dequeue();
                 if (clip != null)
                 {
-                    audioSource.volume = cardSoundVolume;
+                    audioSource.volume = cardSoundVolume * masterVolume;
                     audioSource.PlayOneShot(clip);
                     yield return new WaitForSeconds(delay);
                 }
@@ -299,7 +321,6 @@ namespace CardGame
 
         public void PlaySound(SoundType soundType)
         {
-            // Prevent sound overlap by checking last play time
             if (lastPlayTimes.ContainsKey(soundType))
             {
                 if (Time.time - lastPlayTimes[soundType] < MIN_SOUND_INTERVAL)
@@ -356,6 +377,12 @@ namespace CardGame
                     case SoundType.Lose:
                         PlayLoseVoiceLine();
                         break;
+                    case SoundType.ButtonClick:
+                        PlayButtonClickSound();
+                        break;
+                    case SoundType.ButtonHover:
+                        PlayButtonHoverSound();
+                        break;
                 }
             }
             catch (System.Exception e)
@@ -379,6 +406,70 @@ namespace CardGame
             }
         }
 
+        public void SetMasterVolume(float volume)
+        {
+            masterVolume = Mathf.Clamp01(volume);
+            UpdateAudioSourceVolumes();
+        }
+
+        public void SetDialogueVolume(float volume)
+        {
+            voiceLineVolume = Mathf.Clamp01(volume);
+            if (voiceSource != null)
+            {
+                voiceSource.volume = voiceLineVolume * masterVolume;
+            }
+        }
+
+        public void SetSoundEffectsVolume(float volume)
+        {
+            cardSoundVolume = Mathf.Clamp01(volume);
+            if (audioSource != null)
+            {
+                audioSource.volume = cardSoundVolume * masterVolume;
+            }
+        }
+
+        public void SetBGMusicVolume(float volume)
+        {
+            bgMusicVolume = Mathf.Clamp01(volume);
+            if (bgAudioSource != null)
+            {
+                bgAudioSource.volume = bgMusicVolume * masterVolume;
+            }
+        }
+
+        public void SetUISoundVolume(float volume)
+        {
+            uiSoundVolume = Mathf.Clamp01(volume);
+        }
+
+        private void UpdateAudioSourceVolumes()
+        {
+            if (audioSource != null)
+            {
+                audioSource.volume = cardSoundVolume * masterVolume;
+            }
+            
+            if (voiceSource != null)
+            {
+                voiceSource.volume = voiceLineVolume * masterVolume;
+            }
+            
+            if (bgAudioSource != null)
+            {
+                bgAudioSource.volume = bgMusicVolume * masterVolume;
+            }
+            
+            foreach (var source in additionalAudioSources)
+            {
+                if (source != null)
+                {
+                    source.volume = cardSoundVolume * masterVolume;
+                }
+            }
+        }
+
         private void OnDisable()
         {
             StopAllSounds();
@@ -390,6 +481,47 @@ namespace CardGame
             {
                 StopAllSounds();
             }
+        }
+
+        public void PlayButtonClickSound()
+        {
+            if (buttonClickSound == null) return;
+            
+            AudioSource uiSource = GetAvailableAudioSource();
+            if (uiSource != null)
+            {
+                uiSource.volume = uiSoundVolume * masterVolume;
+                uiSource.PlayOneShot(buttonClickSound);
+            }
+        }
+        
+        public void PlayButtonHoverSound()
+        {
+            if (buttonHoverSound == null) return;
+            
+            AudioSource uiSource = GetAvailableAudioSource();
+            if (uiSource != null)
+            {
+                uiSource.volume = uiSoundVolume * masterVolume;
+                uiSource.PlayOneShot(buttonHoverSound);
+            }
+        }
+        
+        private AudioSource GetAvailableAudioSource()
+        {
+            foreach (var source in additionalAudioSources)
+            {
+                if (source != null && !source.isPlaying)
+                {
+                    return source;
+                }
+            }
+            
+            AudioSource newSource = gameObject.AddComponent<AudioSource>();
+            newSource.playOnAwake = false;
+            newSource.loop = false;
+            additionalAudioSources.Add(newSource);
+            return newSource;
         }
     }
 }

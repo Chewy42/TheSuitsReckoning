@@ -4,6 +4,8 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.Video;
 using UnityEngine.SceneManagement; // Add this line
+using UnityEngine.EventSystems; // Add this for EventTrigger
+using UnityEngine.UI; // Add this for UI components
 
 namespace CardGame
 {
@@ -27,6 +29,23 @@ namespace CardGame
         public CanvasGroup feedbackFormCanvasGroup;
         public CanvasGroup tutorialCanvasGroup;
         public CanvasGroup pauseMenuCanvasGroup;  // Add this line
+        public CanvasGroup settingsCanvasGroup;  // Add settings canvas group
+        public UnityEngine.UI.Scrollbar masterVolumeScrollbar;
+        public UnityEngine.UI.Scrollbar dialogueVolumeScrollbar;
+        public UnityEngine.UI.Scrollbar soundEffectsVolumeScrollbar;
+        public UnityEngine.UI.Scrollbar bgMusicVolumeScrollbar;
+        public UnityEngine.UI.Scrollbar uiSoundVolumeScrollbar;
+        public AudioManager audioManager;
+
+        [Header("Animation Settings")]
+        [SerializeField] private bool doubleDealingSpeedEnabled = false;
+        [SerializeField] private float animationSpeedMultiplier = 1.0f;
+        // This multiplier will be used to control animation speed (0.5 = double speed)
+
+        [Header("Audio Settings")]
+        // Remove unused slider variables
+        // Alternative scrollbar references
+
         [Header("Tutorial")]
         [SerializeField] private TutorialScreen[] _tutorialScreens;  // Serialized reference
         private TutorialScreen[] tutorialScreens;  // Runtime reference
@@ -48,6 +67,10 @@ namespace CardGame
         private void Start()
         {
             Debug.Log("UIManager Start");
+            
+            // Ensure normal speed is set by default
+            doubleDealingSpeedEnabled = false;
+            animationSpeedMultiplier = 1.0f;
             
             // Cache tutorial screens
             if (_tutorialScreens != null && _tutorialScreens.Length > 0)
@@ -88,6 +111,9 @@ namespace CardGame
             }
             
             ResetUI();
+            
+            // Initialize audio sliders if they exist
+            InitializeAudioSliders();
             
             // Start the target score pulsing animation
             StartTargetScorePulseAnimation();
@@ -242,7 +268,7 @@ namespace CardGame
                         yield break;
 
                     gameStatusText.text = text;
-                    yield return new WaitForSeconds(0.5f);
+                    yield return GetAdjustedWaitForSeconds(0.5f);
                 }
             }
         }
@@ -361,6 +387,8 @@ namespace CardGame
 
             float originalSize = textComponent.fontSize;
             float targetSize = originalSize + 2f;
+            
+            // Always use normal speed for emphasis animation (0.2f without adjustment)
             float duration = 0.2f;
             float elapsed = 0f;
 
@@ -369,7 +397,7 @@ namespace CardGame
                 // Increase size
                 while (elapsed < duration / 2)
                 {
-                    elapsed += Time.deltaTime;
+                    elapsed += Time.deltaTime; // Use normal Time.deltaTime instead of adjusted
                     float t = elapsed / (duration / 2);
                     float smoothT = t * t * (3f - 2f * t); // Smooth step interpolation
                     textComponent.fontSize = Mathf.Lerp(originalSize, targetSize, smoothT);
@@ -380,7 +408,7 @@ namespace CardGame
                 elapsed = 0f;
                 while (elapsed < duration / 2)
                 {
-                    elapsed += Time.deltaTime;
+                    elapsed += Time.deltaTime; // Use normal Time.deltaTime instead of adjusted
                     float t = elapsed / (duration / 2);
                     float smoothT = t * t * (3f - 2f * t); // Smooth step interpolation
                     textComponent.fontSize = Mathf.Lerp(targetSize, originalSize, smoothT);
@@ -442,7 +470,7 @@ namespace CardGame
             float elapsed = 0f;
             while (elapsed < GameParameters.FEEDBACK_FORM_FADE_DURATION)
             {
-                elapsed += Time.deltaTime;
+                elapsed += GetAdjustedDeltaTime();
                 float t = elapsed / GameParameters.FEEDBACK_FORM_FADE_DURATION;
                 float smoothT = t * t * (3f - 2f * t); // Smooth step interpolation
                 feedbackFormCanvasGroup.alpha = Mathf.Lerp(0f, 1f, smoothT);
@@ -464,7 +492,7 @@ namespace CardGame
                 if (animation != null)
                 {
                     yield return StartCoroutine(animation);
-                    yield return new WaitForSeconds(0.1f); // Small delay between animations
+                    yield return GetAdjustedWaitForSeconds(0.1f); // Small delay between animations
                 }
             }
             isProcessingAnimations = false;
@@ -486,6 +514,8 @@ namespace CardGame
 
             int previousScore = gameManager.GetCurrentTargetScore();
             HashSet<int> usedScores = new HashSet<int> { previousScore, finalScore };
+            
+            // Always use normal speed for randomization (0.3f without adjustment)
             float animationDelay = 0.3f;
 
             for (int i = 0; i < 5; i++)
@@ -506,6 +536,8 @@ namespace CardGame
                 {
                     gameManager?.GetAudioManager()?.PlaySound(SoundType.RandomizeTarget1);
                     StartEmphasisAnimation(targetScoreText.transform);
+                    
+                    // Use normal speed wait regardless of double speed setting
                     yield return new WaitForSeconds(animationDelay);
                 }
                 else
@@ -550,7 +582,7 @@ namespace CardGame
         
         private IEnumerator ResumeDealerTurn()
         {
-            yield return new WaitForSeconds(0.5f); // Short delay to let everything settle
+            yield return GetAdjustedWaitForSeconds(0.5f); // Short delay to let everything settle
             ShowDealerPlaying();
             gameManager?.StartCoroutine(gameManager.DealerPlayLoop());
         }
@@ -1089,7 +1121,8 @@ namespace CardGame
             float originalFontSize = targetScoreText.fontSize;
             float targetFontSize = originalFontSize * 1.1f; // 10% larger font
             
-            float pulseDuration = 1.0f; // Total time for one pulse cycle
+            // Always use normal speed for pulse animation (1.0f without adjustment)
+            float pulseDuration = 1.0f;
             
             Debug.Log($"Pulse animation setup - Original color: {originalColor}, Bright color: {brightColor}");
             Debug.Log($"Original font size: {originalFontSize}, Target font size: {targetFontSize}");
@@ -1111,7 +1144,7 @@ namespace CardGame
                 float elapsed = 0f;
                 while (elapsed < pulseDuration / 2)
                 {
-                    elapsed += Time.deltaTime;
+                    elapsed += Time.deltaTime; // Use normal Time.deltaTime instead of adjusted
                     float t = elapsed / (pulseDuration / 2);
                     float smoothT = Mathf.SmoothStep(0, 1, t); // Smooth step for more natural animation
                     
@@ -1126,7 +1159,7 @@ namespace CardGame
                 elapsed = 0f;
                 while (elapsed < pulseDuration / 2)
                 {
-                    elapsed += Time.deltaTime;
+                    elapsed += Time.deltaTime; // Use normal Time.deltaTime instead of adjusted
                     float t = elapsed / (pulseDuration / 2);
                     float smoothT = Mathf.SmoothStep(0, 1, t);
                     
@@ -1137,9 +1170,291 @@ namespace CardGame
                     yield return null;
                 }
                 
-                // Small pause between pulses
+                // Small pause between pulses - use normal speed
                 yield return new WaitForSeconds(0.2f);
             }
+        }
+
+        // Method to show the settings menu
+        public void ShowSettings()
+        {
+            if (settingsCanvasGroup == null) return;
+
+            // Update slider values to match current audio settings
+            UpdateAudioSliderValues();
+
+            // Show settings
+            settingsCanvasGroup.alpha = 1;
+            settingsCanvasGroup.interactable = true;
+            settingsCanvasGroup.blocksRaycasts = true;
+        }
+
+        // Update slider values to match current audio settings
+        private void UpdateAudioSliderValues()
+        {
+            if (audioManager == null)
+            {
+                audioManager = FindAnyObjectByType<AudioManager>();
+                if (audioManager == null) return;
+            }
+
+            if (masterVolumeScrollbar != null)
+            {
+                masterVolumeScrollbar.value = audioManager.masterVolume;
+            }
+
+            if (dialogueVolumeScrollbar != null)
+            {
+                dialogueVolumeScrollbar.value = audioManager.voiceLineVolume;
+            }
+
+            if (soundEffectsVolumeScrollbar != null)
+            {
+                soundEffectsVolumeScrollbar.value = audioManager.cardSoundVolume;
+            }
+            
+            if (bgMusicVolumeScrollbar != null)
+            {
+                bgMusicVolumeScrollbar.value = audioManager.bgMusicVolume;
+            }
+            
+            if (uiSoundVolumeScrollbar != null)
+            {
+                uiSoundVolumeScrollbar.value = audioManager.uiSoundVolume;
+            }
+        }
+
+        // Method to hide the settings menu
+        public void HideSettings()
+        {
+            if (settingsCanvasGroup == null) return;
+
+            // Hide settings
+            settingsCanvasGroup.alpha = 0;
+            settingsCanvasGroup.interactable = false;
+            settingsCanvasGroup.blocksRaycasts = false;
+        }
+
+        // Method to toggle the settings menu visibility
+        public void ToggleSettings()
+        {
+            if (settingsCanvasGroup == null) return;
+
+            bool isVisible = settingsCanvasGroup.alpha > 0;
+            
+            // Toggle settings visibility
+            settingsCanvasGroup.alpha = isVisible ? 0 : 1;
+            settingsCanvasGroup.interactable = !isVisible;
+            settingsCanvasGroup.blocksRaycasts = !isVisible;
+        }
+
+        // Initialize audio sliders with current values from AudioManager
+        private void InitializeAudioSliders()
+        {
+            if (audioManager == null)
+            {
+                audioManager = FindAnyObjectByType<AudioManager>();
+                if (audioManager == null)
+                {
+                    Debug.LogWarning("AudioManager not found. Audio settings will not work.");
+                    return;
+                }
+            }
+
+            // Set up master volume scrollbar
+            if (masterVolumeScrollbar != null)
+            {
+                masterVolumeScrollbar.value = audioManager.masterVolume;
+                masterVolumeScrollbar.onValueChanged.AddListener(OnMasterVolumeChanged);
+            }
+
+            // Set up dialogue volume scrollbar
+            if (dialogueVolumeScrollbar != null)
+            {
+                dialogueVolumeScrollbar.value = audioManager.voiceLineVolume;
+                dialogueVolumeScrollbar.onValueChanged.AddListener(OnDialogueVolumeChanged);
+            }
+
+            // Set up sound effects volume scrollbar
+            if (soundEffectsVolumeScrollbar != null)
+            {
+                soundEffectsVolumeScrollbar.value = audioManager.cardSoundVolume;
+                soundEffectsVolumeScrollbar.onValueChanged.AddListener(OnSoundEffectsVolumeChanged);
+            }
+            
+            // Set up background music volume scrollbar
+            if (bgMusicVolumeScrollbar != null)
+            {
+                bgMusicVolumeScrollbar.value = audioManager.bgMusicVolume;
+                bgMusicVolumeScrollbar.onValueChanged.AddListener(OnBGMusicVolumeChanged);
+            }
+            
+            // Set up UI sound volume scrollbar
+            if (uiSoundVolumeScrollbar != null)
+            {
+                uiSoundVolumeScrollbar.value = audioManager.uiSoundVolume;
+                uiSoundVolumeScrollbar.onValueChanged.AddListener(OnUISoundVolumeChanged);
+            }
+        }
+
+        // Called when master volume scrollbar value changes
+        public void OnMasterVolumeChanged(float value)
+        {
+            if (audioManager != null)
+            {
+                audioManager.SetMasterVolume(value);
+            }
+        }
+
+        // Called when dialogue volume scrollbar value changes
+        public void OnDialogueVolumeChanged(float value)
+        {
+            if (audioManager != null)
+            {
+                audioManager.SetDialogueVolume(value);
+            }
+        }
+
+        // Called when sound effects volume scrollbar value changes
+        public void OnSoundEffectsVolumeChanged(float value)
+        {
+            if (audioManager != null)
+            {
+                audioManager.SetSoundEffectsVolume(value);
+            }
+        }
+        
+        // Called when background music volume scrollbar value changes
+        public void OnBGMusicVolumeChanged(float value)
+        {
+            if (audioManager != null)
+            {
+                audioManager.SetBGMusicVolume(value);
+            }
+        }
+        
+        // Called when UI sound volume scrollbar value changes
+        public void OnUISoundVolumeChanged(float value)
+        {
+            if (audioManager != null)
+            {
+                audioManager.SetUISoundVolume(value);
+            }
+        }
+        
+        // Set up audio for a UI button
+        public void SetupButtonAudio(UnityEngine.UI.Button button)
+        {
+            if (audioManager == null || button == null) return;
+            
+            // Add hover sound
+            EventTrigger trigger = button.gameObject.GetComponent<EventTrigger>();
+            if (trigger == null)
+            {
+                trigger = button.gameObject.AddComponent<EventTrigger>();
+            }
+            
+            // Add pointer enter event (hover)
+            EventTrigger.Entry enterEntry = new EventTrigger.Entry();
+            enterEntry.eventID = EventTriggerType.PointerEnter;
+            enterEntry.callback.AddListener((data) => { audioManager.PlayButtonHoverSound(); });
+            trigger.triggers.Add(enterEntry);
+            
+            // Add click event
+            button.onClick.AddListener(() => audioManager.PlayButtonClickSound());
+        }
+        
+        // Set up audio for all buttons in the scene
+        public void SetupAllButtonsAudio()
+        {
+            if (audioManager == null) return;
+            
+            // Find all buttons in the scene
+            UnityEngine.UI.Button[] allButtons = FindObjectsOfType<UnityEngine.UI.Button>();
+            foreach (var button in allButtons)
+            {
+                SetupButtonAudio(button);
+            }
+            
+            Debug.Log($"Set up audio for {allButtons.Length} buttons");
+        }
+
+        // Enable double dealing speed
+        public void EnableDoubleDealingSpeed()
+        {
+            doubleDealingSpeedEnabled = true;
+            animationSpeedMultiplier = 0.5f;
+        }
+
+        // Disable double dealing speed
+        public void DisableDoubleDealingSpeed()
+        {
+            doubleDealingSpeedEnabled = false;
+            animationSpeedMultiplier = 1.0f;
+        }
+
+        // Helper method to get adjusted wait time for animations
+        private float GetAdjustedAnimationTime(float originalTime)
+        {
+            if (doubleDealingSpeedEnabled)
+            {
+                return originalTime * animationSpeedMultiplier;
+            }
+            return originalTime;
+        }
+
+        // Helper method to create WaitForSeconds with adjusted time
+        private WaitForSeconds GetAdjustedWaitForSeconds(float seconds)
+        {
+            return new WaitForSeconds(GetAdjustedAnimationTime(seconds));
+        }
+
+        // Helper method to get adjusted deltaTime for animations
+        private float GetAdjustedDeltaTime()
+        {
+            return Time.deltaTime * (doubleDealingSpeedEnabled ? 1.0f / animationSpeedMultiplier : 1.0f);
+        }
+
+        // Toggle double dealing speed with feedback
+        public void ToggleDoubleDealingSpeed()
+        {
+            if (doubleDealingSpeedEnabled)
+            {
+                DisableDoubleDealingSpeed();
+                if (gameStatusText != null)
+                {
+                    gameStatusText.text = "Normal Speed";
+                    StartCoroutine(ClearStatusAfterDelay(2.0f));
+                }
+            }
+            else
+            {
+                EnableDoubleDealingSpeed();
+                if (gameStatusText != null)
+                {
+                    gameStatusText.text = "Double Speed Enabled";
+                    StartCoroutine(ClearStatusAfterDelay(2.0f));
+                }
+            }
+        }
+
+        // Helper method to clear status text after a delay
+        private IEnumerator ClearStatusAfterDelay(float delay)
+        {
+            yield return new WaitForSeconds(delay);
+            UpdateUI();
+        }
+
+        // Helper method to get the current animation speed multiplier
+        public float GetAnimationSpeedMultiplier()
+        {
+            return animationSpeedMultiplier;
+        }
+
+        // Check if double dealing speed is enabled
+        public bool IsDoubleDealingSpeedEnabled()
+        {
+            return doubleDealingSpeedEnabled;
         }
     }
 }
