@@ -1,6 +1,9 @@
+using System;
 using System.Collections;
-using UnityEngine;
 using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
 
 namespace CardGame
 {
@@ -81,6 +84,37 @@ namespace CardGame
 
         private List<AudioSource> additionalAudioSources = new List<AudioSource>();
 
+        // PlayerPrefs keys for audio settings
+        private const string MASTER_VOLUME_KEY = "MasterVolume";
+        private const string VOICE_VOLUME_KEY = "VoiceVolume";
+        private const string CARD_SOUND_VOLUME_KEY = "CardSoundVolume";
+        private const string BG_MUSIC_VOLUME_KEY = "BGMusicVolume";
+        private const string UI_SOUND_VOLUME_KEY = "UISoundVolume";
+
+        private static AudioManager instance;
+
+        void Awake()
+        {
+            // Singleton pattern
+            if (instance != null && instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+            instance = this;
+            DontDestroyOnLoad(gameObject);
+            
+            // Load audio settings from PlayerPrefs
+            Debug.Log("AudioManager Awake: Loading audio settings from PlayerPrefs");
+            LoadAudioSettings();
+            
+            // Apply the loaded settings to ensure all audio sources are updated
+            UpdateAudioSourceVolumes();
+            
+            // Debug: Verify PlayerPrefs were loaded correctly
+            VerifyPlayerPrefs();
+        }
+
         void Start()
         {
             audioSource = GetComponent<AudioSource>();
@@ -115,7 +149,11 @@ namespace CardGame
                 }
             }
             
+            // Apply the loaded settings again to ensure all audio sources are updated
             UpdateAudioSourceVolumes();
+            
+            // Debug: Verify PlayerPrefs
+            VerifyPlayerPrefs();
             
             SetNextGenericVoiceLineTime();
         }
@@ -131,7 +169,7 @@ namespace CardGame
 
         private void SetNextGenericVoiceLineTime()
         {
-            float interval = Random.Range(minGenericVoiceLineInterval, maxGenericVoiceLineInterval);
+            float interval = UnityEngine.Random.Range(minGenericVoiceLineInterval, maxGenericVoiceLineInterval);
             nextGenericVoiceLineTime = Time.time + interval;
         }
 
@@ -163,7 +201,7 @@ namespace CardGame
         {
             if (dealerThinkingSounds != null && dealerThinkingSounds.Length > 0)
             {
-                QueueSound(dealerThinkingSounds[Random.Range(0, dealerThinkingSounds.Length)]);
+                QueueSound(dealerThinkingSounds[UnityEngine.Random.Range(0, dealerThinkingSounds.Length)]);
             }
         }
 
@@ -192,7 +230,7 @@ namespace CardGame
 
             if (winVoiceLines != null && winVoiceLines.Length > 0)
             {
-                int randomIndex = Random.Range(0, winVoiceLines.Length);
+                int randomIndex = UnityEngine.Random.Range(0, winVoiceLines.Length);
                 PlayVoiceLine(winVoiceLines[randomIndex]);
             }
         }
@@ -206,7 +244,7 @@ namespace CardGame
 
             if (loseVoiceLines != null && loseVoiceLines.Length > 0)
             {
-                int randomIndex = Random.Range(0, loseVoiceLines.Length);
+                int randomIndex = UnityEngine.Random.Range(0, loseVoiceLines.Length);
                 PlayVoiceLine(loseVoiceLines[randomIndex]);
             }
         }
@@ -232,7 +270,7 @@ namespace CardGame
             {
                 if (audioSource != null)
                 {
-                    int index = Random.Range(0, shuffleSounds.Length);
+                    int index = UnityEngine.Random.Range(0, shuffleSounds.Length);
                     audioSource.PlayOneShot(shuffleSounds[index]);
                     yield return new WaitForSeconds(shuffleSounds[index].length);
                 }
@@ -294,7 +332,7 @@ namespace CardGame
 
             if (genericVoiceClips != null && genericVoiceClips.Length > 0)
             {
-                int randomIndex = Random.Range(0, genericVoiceClips.Length);
+                int randomIndex = UnityEngine.Random.Range(0, genericVoiceClips.Length);
                 PlayVoiceLine(genericVoiceClips[randomIndex]);
             }
         }
@@ -314,7 +352,7 @@ namespace CardGame
         {
             if (clips != null && clips.Length > 0)
             {
-                int randomIndex = Random.Range(0, clips.Length);
+                int randomIndex = UnityEngine.Random.Range(0, clips.Length);
                 PlayVoiceLine(clips[randomIndex]);
             }
         }
@@ -368,7 +406,7 @@ namespace CardGame
                     case SoundType.DealerThinking:
                         if (dealerThinkingSounds != null && dealerThinkingSounds.Length > 0)
                         {
-                            QueueSound(dealerThinkingSounds[Random.Range(0, dealerThinkingSounds.Length)]);
+                            QueueSound(dealerThinkingSounds[UnityEngine.Random.Range(0, dealerThinkingSounds.Length)]);
                         }
                         break;
                     case SoundType.Win:
@@ -410,6 +448,12 @@ namespace CardGame
         {
             masterVolume = Mathf.Clamp01(volume);
             UpdateAudioSourceVolumes();
+            
+            // Save the setting with debug
+            Debug.Log($"Saving master volume: {masterVolume}");
+            PlayerPrefs.SetFloat(MASTER_VOLUME_KEY, masterVolume);
+            PlayerPrefs.Save();
+            Debug.Log($"Master volume saved. PlayerPrefs has key: {PlayerPrefs.HasKey(MASTER_VOLUME_KEY)}");
         }
 
         public void SetDialogueVolume(float volume)
@@ -419,6 +463,12 @@ namespace CardGame
             {
                 voiceSource.volume = voiceLineVolume * masterVolume;
             }
+            
+            // Save the setting with debug
+            Debug.Log($"Saving dialogue volume: {voiceLineVolume}");
+            PlayerPrefs.SetFloat(VOICE_VOLUME_KEY, voiceLineVolume);
+            PlayerPrefs.Save();
+            Debug.Log($"Dialogue volume saved. PlayerPrefs has key: {PlayerPrefs.HasKey(VOICE_VOLUME_KEY)}");
         }
 
         public void SetSoundEffectsVolume(float volume)
@@ -428,6 +478,12 @@ namespace CardGame
             {
                 audioSource.volume = cardSoundVolume * masterVolume;
             }
+            
+            // Save the setting with debug
+            Debug.Log($"Saving sound effects volume: {cardSoundVolume}");
+            PlayerPrefs.SetFloat(CARD_SOUND_VOLUME_KEY, cardSoundVolume);
+            PlayerPrefs.Save();
+            Debug.Log($"Sound effects volume saved. PlayerPrefs has key: {PlayerPrefs.HasKey(CARD_SOUND_VOLUME_KEY)}");
         }
 
         public void SetBGMusicVolume(float volume)
@@ -437,11 +493,23 @@ namespace CardGame
             {
                 bgAudioSource.volume = bgMusicVolume * masterVolume;
             }
+            
+            // Save the setting with debug
+            Debug.Log($"Saving bg music volume: {bgMusicVolume}");
+            PlayerPrefs.SetFloat(BG_MUSIC_VOLUME_KEY, bgMusicVolume);
+            PlayerPrefs.Save();
+            Debug.Log($"BG music volume saved. PlayerPrefs has key: {PlayerPrefs.HasKey(BG_MUSIC_VOLUME_KEY)}");
         }
 
         public void SetUISoundVolume(float volume)
         {
             uiSoundVolume = Mathf.Clamp01(volume);
+            
+            // Save the setting with debug
+            Debug.Log($"Saving UI sound volume: {uiSoundVolume}");
+            PlayerPrefs.SetFloat(UI_SOUND_VOLUME_KEY, uiSoundVolume);
+            PlayerPrefs.Save();
+            Debug.Log($"UI sound volume saved. PlayerPrefs has key: {PlayerPrefs.HasKey(UI_SOUND_VOLUME_KEY)}");
         }
 
         private void UpdateAudioSourceVolumes()
@@ -479,8 +547,16 @@ namespace CardGame
         {
             if (pauseStatus)
             {
+                // Save settings when the game is paused (e.g., when app goes to background on mobile)
+                SaveAllAudioSettings();
                 StopAllSounds();
             }
+        }
+
+        private void OnApplicationQuit()
+        {
+            // Save all settings when the application quits
+            SaveAllAudioSettings();
         }
 
         public void PlayButtonClickSound()
@@ -522,6 +598,103 @@ namespace CardGame
             newSource.loop = false;
             additionalAudioSources.Add(newSource);
             return newSource;
+        }
+
+        // Save all audio settings at once
+        public void SaveAllAudioSettings()
+        {
+            Debug.Log("Saving all audio settings...");
+            
+            PlayerPrefs.SetFloat(MASTER_VOLUME_KEY, masterVolume);
+            PlayerPrefs.SetFloat(VOICE_VOLUME_KEY, voiceLineVolume);
+            PlayerPrefs.SetFloat(CARD_SOUND_VOLUME_KEY, cardSoundVolume);
+            PlayerPrefs.SetFloat(BG_MUSIC_VOLUME_KEY, bgMusicVolume);
+            PlayerPrefs.SetFloat(UI_SOUND_VOLUME_KEY, uiSoundVolume);
+            
+            // Force save to ensure settings are persisted
+            PlayerPrefs.Save();
+            
+            Debug.Log("All audio settings saved successfully");
+            VerifyPlayerPrefs();
+        }
+
+        // Load audio settings from PlayerPrefs
+        private void LoadAudioSettings()
+        {
+            try
+            {
+                Debug.Log("Loading audio settings from PlayerPrefs...");
+                
+                // Check if we have saved settings
+                bool hasSavedSettings = PlayerPrefs.HasKey(MASTER_VOLUME_KEY);
+                
+                if (hasSavedSettings)
+                {
+                    Debug.Log("Found saved audio settings");
+                    
+                    // Load each volume setting
+                    masterVolume = PlayerPrefs.GetFloat(MASTER_VOLUME_KEY, 1.0f);
+                    voiceLineVolume = PlayerPrefs.GetFloat(VOICE_VOLUME_KEY, 1.0f);
+                    cardSoundVolume = PlayerPrefs.GetFloat(CARD_SOUND_VOLUME_KEY, 1.0f);
+                    bgMusicVolume = PlayerPrefs.GetFloat(BG_MUSIC_VOLUME_KEY, 1.0f);
+                    uiSoundVolume = PlayerPrefs.GetFloat(UI_SOUND_VOLUME_KEY, 1.0f);
+                    
+                    Debug.Log($"Loaded settings - Master: {masterVolume}, Voice: {voiceLineVolume}, " +
+                              $"Card: {cardSoundVolume}, BG: {bgMusicVolume}, UI: {uiSoundVolume}");
+                }
+                else
+                {
+                    Debug.Log("No saved audio settings found. Using defaults.");
+                    
+                    // Use default values
+                    masterVolume = 1.0f;
+                    voiceLineVolume = 1.0f;
+                    cardSoundVolume = 1.0f;
+                    bgMusicVolume = 1.0f;
+                    uiSoundVolume = 1.0f;
+                    
+                    // Save the default values
+                    SaveAllAudioSettings();
+                }
+                
+                // Update audio sources with the loaded values
+                UpdateAudioSourceVolumes();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Error loading audio settings: {e.Message}");
+                
+                // Use default values in case of error
+                masterVolume = 1.0f;
+                voiceLineVolume = 1.0f;
+                cardSoundVolume = 1.0f;
+                bgMusicVolume = 1.0f;
+                uiSoundVolume = 1.0f;
+            }
+        }
+
+        // Debug method to verify PlayerPrefs are being saved and loaded correctly
+        private void VerifyPlayerPrefs()
+        {
+            Debug.Log("===== AUDIO SETTINGS DEBUG =====");
+            Debug.Log($"Current masterVolume: {masterVolume}");
+            Debug.Log($"Current voiceLineVolume: {voiceLineVolume}");
+            Debug.Log($"Current cardSoundVolume: {cardSoundVolume}");
+            Debug.Log($"Current bgMusicVolume: {bgMusicVolume}");
+            Debug.Log($"Current uiSoundVolume: {uiSoundVolume}");
+            
+            // Check if PlayerPrefs exist
+            Debug.Log("PlayerPrefs Keys Check:");
+            Debug.Log($"{MASTER_VOLUME_KEY} exists: {PlayerPrefs.HasKey(MASTER_VOLUME_KEY)}");
+            Debug.Log($"{VOICE_VOLUME_KEY} exists: {PlayerPrefs.HasKey(VOICE_VOLUME_KEY)}");
+            Debug.Log($"{CARD_SOUND_VOLUME_KEY} exists: {PlayerPrefs.HasKey(CARD_SOUND_VOLUME_KEY)}");
+            Debug.Log($"{BG_MUSIC_VOLUME_KEY} exists: {PlayerPrefs.HasKey(BG_MUSIC_VOLUME_KEY)}");
+            Debug.Log($"{UI_SOUND_VOLUME_KEY} exists: {PlayerPrefs.HasKey(UI_SOUND_VOLUME_KEY)}");
+            
+            // Force save to ensure settings are persisted
+            PlayerPrefs.Save();
+            Debug.Log("PlayerPrefs.Save() called to ensure settings are saved");
+            Debug.Log("===============================");
         }
     }
 }

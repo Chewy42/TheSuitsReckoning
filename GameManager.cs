@@ -28,6 +28,13 @@ namespace CardGame
     {
         public static GameManager Instance { get; private set; }
 
+        #region Timer Variables
+        [Header("Game Timer")]
+        private float gameplayTime = 0f;
+        private bool isTimerRunning = false;
+        private string formattedTime = "00:00:00";
+        #endregion
+
         #region Component References
         [Header("Game Components")]
         [SerializeField, Tooltip("Reference to the player component")] 
@@ -186,11 +193,12 @@ namespace CardGame
 
         private void Start()
         {
-            // Initialize all components first
-            InitializeComponents();
+            // Start the game initialization
+            StartCoroutine(InitializeNewGame());
             
-            // Begin the game directly
-            BeginGame();
+            // Start the game timer
+            StartGameTimer();
+            
             Debug.Log("Game started - Beginning initial setup");
         }
 
@@ -930,7 +938,7 @@ namespace CardGame
         {
             Debug.Log("Starting dealer play loop");
             
-            while (currentGameState == GameState.DealerTurn && !isPaused && !isPausedForTutorial)
+            while (currentGameState == GameState.DealerTurn)
             {
                 // Check if dealer should hit
                 if (dealerPlayer.ShouldHit())
@@ -1016,6 +1024,65 @@ namespace CardGame
             
             // Handle tie - now call it a Push and set a special flag
             ProcessPush();
+            return $"Push at {playerScore}! Tie game!";
+        }
+
+        /// <summary>
+        /// Deals a card to a specific slot
+        /// </summary>
+        private IEnumerator DealCardToSlot(Card card, Transform slot, bool faceDown = false)
+        {
+            if (card == null || slot == null) yield break;
+
+            card.SetFaceDown(faceDown);
+            yield return StartCoroutine(dealer.DealCard(card, slot, faceDown));
+        }
+
+        private string DetermineWinMessage()
+        {
+            int playerScore = playerPlayer.GetHandValue();
+            int dealerScore = dealerPlayer.GetHandValue();
+            int targetScore = currentTargetScore;
+            
+            // Check for perfect scores
+            if (playerScore == targetScore && dealerScore == targetScore)
+            {
+                return $"Push! Both players hit perfect {targetScore}!";
+            }
+            else if (playerScore == targetScore)
+            {
+                return $"Player wins with perfect {targetScore}!";
+            }
+            else if (dealerScore == targetScore)
+            {
+                return $"Dealer wins with perfect {targetScore}!";
+            }
+            
+            // Check for busts
+            if (playerScore > targetScore && dealerScore > targetScore)
+            {
+                return "Push! Both players busted!";
+            }
+            else if (playerScore > targetScore)
+            {
+                return $"Dealer wins! Player busted with {playerScore}";
+            }
+            else if (dealerScore > targetScore)
+            {
+                return $"Player wins! Dealer busted with {dealerScore}";
+            }
+            
+            // Compare scores
+            if (playerScore > dealerScore)
+            {
+                return $"Player wins with {playerScore} vs {dealerScore}!";
+            }
+            else if (dealerScore > playerScore)
+            {
+                return $"Dealer wins with {dealerScore} vs {playerScore}!";
+            }
+            
+            // Must be a push
             return $"Push at {playerScore}! Tie game!";
         }
 
@@ -1108,17 +1175,6 @@ namespace CardGame
         }
 
         /// <summary>
-        /// Deals a card to a specific slot
-        /// </summary>
-        private IEnumerator DealCardToSlot(Card card, Transform slot, bool faceDown = false)
-        {
-            if (card == null || slot == null) yield break;
-
-            card.SetFaceDown(faceDown);
-            yield return StartCoroutine(dealer.DealCard(card, slot, faceDown));
-        }
-
-        /// <summary>
         /// Processes a win or loss for the player
         /// </summary>
         /// <param name="isPlayerWin">True if the player won, false if the dealer won</param>
@@ -1207,7 +1263,10 @@ namespace CardGame
         /// </summary>
         private IEnumerator HandleEndGame(string message)
         {
-            Debug.Log($"HandleEndGame: {message}");
+            // Stop the game timer when the game ends
+            StopGameTimer();
+            
+            Debug.Log($"Game ended: {message}");
             isDealing = false;
             SetPlayerButtonsInteractable(false);
 
@@ -1219,8 +1278,75 @@ namespace CardGame
             uiManager?.SetGameStatus(message);
 
             yield return GetAdjustedWaitForSeconds(2f);
+            
+            // Only show the feedback form if the player has won 3 consecutive rounds
+            if (currentWins >= 3 && currentRound >= 3)
+            {
+                // Show the feedback form with the gameplay time
+                uiManager?.ShowFeedbackForm(formattedTime);
+            }
+            
+            // Transition to game over state
+            TransitionToState(GameState.GameOver);
+            
+            // Process intermission after a delay
+            yield return GetAdjustedWaitForSeconds(2f);
             StartCoroutine(ProcessIntermission());
         }
+        
+        #region Timer Methods
+        // Start the game timer
+        public void StartGameTimer()
+        {
+            gameplayTime = 0f;
+            isTimerRunning = true;
+            Debug.Log("Game timer started");
+        }
+        
+        // Stop the game timer
+        public void StopGameTimer()
+        {
+            isTimerRunning = false;
+            Debug.Log($"Game timer stopped at {formattedTime}");
+        }
+        
+        // Get the current formatted time string in a narrative format
+        public string GetFormattedGameTime()
+        {
+            int hours = Mathf.FloorToInt(gameplayTime / 3600);
+            int minutes = Mathf.FloorToInt((gameplayTime % 3600) / 60);
+            int seconds = Mathf.FloorToInt(gameplayTime % 60);
+            
+            if (hours > 0)
+            {
+                return $"It took you {hours} {(hours == 1 ? "hour" : "hours")}, {minutes} {(minutes == 1 ? "minute" : "minutes")}, and {seconds} {(seconds == 1 ? "second" : "seconds")} to defeat the Jack of Spades.";
+            }
+            else
+            {
+                return $"It took you {minutes} {(minutes == 1 ? "minute" : "minutes")} and {seconds} {(seconds == 1 ? "second" : "seconds")} to defeat the Jack of Spades.";
+            }
+        }
+        
+        // Update the timer in Update method
+        private void Update()
+        {
+            if (isTimerRunning)
+            {
+                gameplayTime += Time.deltaTime;
+                UpdateFormattedTime();
+            }
+        }
+        
+        // Update the formatted time string (for internal use)
+        private void UpdateFormattedTime()
+        {
+            int hours = Mathf.FloorToInt(gameplayTime / 3600);
+            int minutes = Mathf.FloorToInt((gameplayTime % 3600) / 60);
+            int seconds = Mathf.FloorToInt(gameplayTime % 60);
+            
+            formattedTime = GetFormattedGameTime();
+        }
+        #endregion
 
         #region Game End Processing
         /// <summary>
@@ -1304,6 +1430,14 @@ namespace CardGame
             SetPlayerButtonsInteractable(!pause);
         }
 
+        public void SetGamePaused(bool paused)
+        {
+            isPaused = paused;
+            
+            // Disable player interaction while paused
+            SetPlayerButtonsInteractable(!paused);
+        }
+
         public void SetPlayerButtonsInteractable(bool interactable)
         {
             if (isPausedForTutorial)
@@ -1326,20 +1460,6 @@ namespace CardGame
         public void PlayBadMoveLine()
         {
             audioManager?.PlayRandomVoiceLine(audioManager.badMoveVoiceClips);
-        }
-        
-        public void SetGamePaused(bool paused)
-        {
-            isPaused = paused;
-            
-            // Disable player interaction while paused
-            SetPlayerButtonsInteractable(!paused);
-            
-            // Stop any ongoing dealer actions if needed
-            if (paused && dealer != null)
-            {
-                StopAllCoroutines();
-            }
         }
         #endregion
 

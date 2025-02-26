@@ -36,6 +36,7 @@ namespace CardGame
         public UnityEngine.UI.Scrollbar bgMusicVolumeScrollbar;
         public UnityEngine.UI.Scrollbar uiSoundVolumeScrollbar;
         public AudioManager audioManager;
+        [SerializeField] private TextMeshProUGUI gameplayTimeText;
 
         [Header("Animation Settings")]
         [SerializeField] private bool doubleDealingSpeedEnabled = false;
@@ -72,6 +73,25 @@ namespace CardGame
             doubleDealingSpeedEnabled = false;
             animationSpeedMultiplier = 1.0f;
             
+            // Find references if not set in inspector
+            if (gameManager == null)
+            {
+                gameManager = FindAnyObjectByType<GameManager>();
+                if (gameManager == null)
+                {
+                    Debug.LogError("UIManager: GameManager not found!");
+                }
+            }
+            
+            if (audioManager == null)
+            {
+                audioManager = FindAnyObjectByType<AudioManager>();
+                if (audioManager == null)
+                {
+                    Debug.LogWarning("UIManager: AudioManager not found!");
+                }
+            }
+            
             // Cache tutorial screens
             if (_tutorialScreens != null && _tutorialScreens.Length > 0)
             {
@@ -85,19 +105,6 @@ namespace CardGame
                 tutorialScreens = new TutorialScreen[0];
             }
 
-            if (feedbackFormCanvasGroup != null)
-            {
-                feedbackFormCanvasGroup.alpha = 0f;
-                feedbackFormCanvasGroup.interactable = false;
-                feedbackFormCanvasGroup.blocksRaycasts = false;
-            }
-            if (tutorialCanvasGroup != null)
-            {
-                tutorialCanvasGroup.alpha = 0f; // Initially hidden
-                tutorialCanvasGroup.interactable = false;
-                tutorialCanvasGroup.blocksRaycasts = false;
-            }
-            
             // Ensure all tutorial screens are initially hidden
             foreach (var screen in tutorialScreens)
             {
@@ -124,18 +131,15 @@ namespace CardGame
             // Handle ESC key for pause menu
             if (Input.GetKeyDown(KeyCode.Escape))
             {
-                // Always allow unpausing if pause menu is visible
-                bool isPauseMenuVisible = pauseMenuCanvasGroup != null && pauseMenuCanvasGroup.alpha > 0;
-                
-                // Only allow pausing during player's turn and when no animations are running
-                bool canPause = gameManager != null && 
-                              gameManager.GetCurrentGameState() == GameState.PlayerTurn &&
-                              !gameManager.IsDealing() && 
-                              !gameManager.IsReturnOrRandomizing() &&
-                              !isProcessingAnimations;
-                              
-                if (isPauseMenuVisible || canPause)
+                // First check if tutorial is active - close it if it is
+                if (IsTutorialActive())
                 {
+                    CloseTutorialIfActive();
+                }
+                // If tutorial is not active, toggle the pause menu
+                else
+                {
+                    // Always allow toggling the pause menu with ESC
                     TogglePauseMenu();
                 }
             }
@@ -438,12 +442,19 @@ namespace CardGame
             }
         }
 
-        public void ShowFeedbackForm()
+        public void ShowFeedbackForm(string gameplayTime = "")
         {
             if (feedbackFormCanvasGroup != null)
             {
                 // Ensure the feedback form is active and visible
                 feedbackFormCanvasGroup.gameObject.SetActive(true);
+                
+                // Set the gameplay time if provided
+                if (!string.IsNullOrEmpty(gameplayTime) && gameplayTimeText != null)
+                {
+                    gameplayTimeText.text = gameplayTime;
+                    gameplayTimeText.gameObject.SetActive(true);
+                }
                 
                 // Hide all other UI elements immediately
                 if (playerScoreText != null) playerScoreText.gameObject.SetActive(false);
@@ -551,17 +562,24 @@ namespace CardGame
 
         private void PauseGame()
         {
-            Time.timeScale = 0;
+            // Do not set Time.timeScale = 0, so the game continues running in the background
+            // Time.timeScale = 0; - Removed this line
+            
             if (gameManager != null)
             {
+                // Only set the UI pause state, but don't actually pause the game
                 gameManager.SetGamePaused(true);
-                gameManager.PauseForTutorial(true);
+                
+                // Don't pause for tutorial either
+                // gameManager.PauseForTutorial(true); - Removed this line
             }
         }
 
         private void UnpauseGame()
         {
-            Time.timeScale = 1;
+            // No need to reset Time.timeScale since we're not changing it
+            // Time.timeScale = 1; - Removed this line
+            
             if (gameManager != null)
             {
                 // Ensure both pause states are cleared
@@ -639,8 +657,8 @@ namespace CardGame
                 Debug.LogError($"Invalid tutorial screen index: {currentTutorialIndex} (total screens: {tutorialScreens.Length})");
             }
 
-            // Pause the game
-            PauseGame();
+            // Do not pause the game
+            // PauseGame(); - Removed this line
         }
 
         // Method to show tutorial from menu
@@ -683,11 +701,12 @@ namespace CardGame
 
             currentTutorialIndex++;
 
-            // If we've shown all screens, cleanup and unpause
+            // If we've shown all screens, cleanup and exit
             if (currentTutorialIndex >= tutorialScreens.Length)
             {
                 CleanupTutorial();
-                UnpauseGame();
+                // Do not unpause the game
+                // UnpauseGame(); - Removed this line
                 return;
             }
 
@@ -739,11 +758,12 @@ namespace CardGame
 
             currentTutorialIndex--;
 
-            // If we've gone before the first screen, cleanup and unpause
+            // If we've gone before the first screen, cleanup and exit
             if (currentTutorialIndex < 0)
             {
                 CleanupTutorial();
-                UnpauseGame();
+                // Do not unpause the game
+                // UnpauseGame(); - Removed this line
                 return;
             }
 
@@ -1032,8 +1052,11 @@ namespace CardGame
             currentTutorialIndex = -1;
             hasTutorialBeenShown = true;  // Mark tutorial as shown
             
-            // Ensure game is fully unpaused
-            UnpauseGame();
+            // Make sure the game isn't paused for tutorial
+            if (gameManager != null)
+            {
+                gameManager.PauseForTutorial(false);
+            }
         }
         
         // Checks if the target score pulse animation should be running based on game state
@@ -1179,58 +1202,84 @@ namespace CardGame
         public void ShowSettings()
         {
             if (settingsCanvasGroup == null) return;
-
+            
             // Update slider values to match current audio settings
             UpdateAudioSliderValues();
 
             // Show settings
-            settingsCanvasGroup.alpha = 1;
+            settingsCanvasGroup.alpha = 1f;
             settingsCanvasGroup.interactable = true;
             settingsCanvasGroup.blocksRaycasts = true;
+            
+            // No need to hide main menu as it doesn't exist in this context
         }
 
         // Update slider values to match current audio settings
         private void UpdateAudioSliderValues()
         {
-            if (audioManager == null)
+            try
             {
-                audioManager = FindAnyObjectByType<AudioManager>();
-                if (audioManager == null) return;
-            }
+                if (audioManager == null)
+                {
+                    audioManager = FindAnyObjectByType<AudioManager>();
+                    if (audioManager == null)
+                    {
+                        Debug.LogWarning("AudioManager not found. Cannot update audio slider values.");
+                        return;
+                    }
+                }
 
-            if (masterVolumeScrollbar != null)
-            {
-                masterVolumeScrollbar.value = audioManager.masterVolume;
-            }
+                Debug.Log("Updating audio slider values from AudioManager");
 
-            if (dialogueVolumeScrollbar != null)
-            {
-                dialogueVolumeScrollbar.value = audioManager.voiceLineVolume;
-            }
+                if (masterVolumeScrollbar != null)
+                {
+                    masterVolumeScrollbar.value = audioManager.masterVolume;
+                    Debug.Log($"Updated master volume scrollbar to {audioManager.masterVolume}");
+                }
 
-            if (soundEffectsVolumeScrollbar != null)
-            {
-                soundEffectsVolumeScrollbar.value = audioManager.cardSoundVolume;
+                if (dialogueVolumeScrollbar != null)
+                {
+                    dialogueVolumeScrollbar.value = audioManager.voiceLineVolume;
+                    Debug.Log($"Updated dialogue volume scrollbar to {audioManager.voiceLineVolume}");
+                }
+
+                if (soundEffectsVolumeScrollbar != null)
+                {
+                    soundEffectsVolumeScrollbar.value = audioManager.cardSoundVolume;
+                    Debug.Log($"Updated sound effects volume scrollbar to {audioManager.cardSoundVolume}");
+                }
+                
+                if (bgMusicVolumeScrollbar != null)
+                {
+                    bgMusicVolumeScrollbar.value = audioManager.bgMusicVolume;
+                    Debug.Log($"Updated bg music volume scrollbar to {audioManager.bgMusicVolume}");
+                }
+                
+                if (uiSoundVolumeScrollbar != null)
+                {
+                    uiSoundVolumeScrollbar.value = audioManager.uiSoundVolume;
+                    Debug.Log($"Updated UI sound volume scrollbar to {audioManager.uiSoundVolume}");
+                }
             }
-            
-            if (bgMusicVolumeScrollbar != null)
+            catch (System.Exception e)
             {
-                bgMusicVolumeScrollbar.value = audioManager.bgMusicVolume;
-            }
-            
-            if (uiSoundVolumeScrollbar != null)
-            {
-                uiSoundVolumeScrollbar.value = audioManager.uiSoundVolume;
+                Debug.LogError($"Error updating audio slider values: {e.Message}");
             }
         }
-
+        
         // Method to hide the settings menu
         public void HideSettings()
         {
             if (settingsCanvasGroup == null) return;
 
+            // Save audio settings when closing the settings menu
+            if (audioManager != null)
+            {
+                audioManager.SaveAllAudioSettings();
+            }
+
             // Hide settings
-            settingsCanvasGroup.alpha = 0;
+            settingsCanvasGroup.alpha = 0f;
             settingsCanvasGroup.interactable = false;
             settingsCanvasGroup.blocksRaycasts = false;
         }
@@ -1242,58 +1291,96 @@ namespace CardGame
 
             bool isVisible = settingsCanvasGroup.alpha > 0;
             
-            // Toggle settings visibility
-            settingsCanvasGroup.alpha = isVisible ? 0 : 1;
-            settingsCanvasGroup.interactable = !isVisible;
-            settingsCanvasGroup.blocksRaycasts = !isVisible;
+            if (isVisible)
+            {
+                HideSettings();
+            }
+            else
+            {
+                ShowSettings();
+            }
         }
 
         // Initialize audio sliders with current values from AudioManager
         private void InitializeAudioSliders()
         {
-            if (audioManager == null)
+            try
             {
-                audioManager = FindAnyObjectByType<AudioManager>();
                 if (audioManager == null)
                 {
-                    Debug.LogWarning("AudioManager not found. Audio settings will not work.");
-                    return;
+                    audioManager = FindAnyObjectByType<AudioManager>();
+                    if (audioManager == null)
+                    {
+                        Debug.LogWarning("AudioManager not found. Audio settings will not work.");
+                        return;
+                    }
+                }
+
+                Debug.Log("Initializing audio sliders with values from AudioManager");
+                
+                // Set up master volume scrollbar
+                if (masterVolumeScrollbar != null)
+                {
+                    // Use the value from AudioManager which has already loaded from PlayerPrefs
+                    masterVolumeScrollbar.value = audioManager.masterVolume;
+                    Debug.Log($"Setting master volume scrollbar to {audioManager.masterVolume}");
+                    
+                    // Remove any existing listeners to prevent duplicates
+                    masterVolumeScrollbar.onValueChanged.RemoveAllListeners();
+                    masterVolumeScrollbar.onValueChanged.AddListener(OnMasterVolumeChanged);
+                }
+
+                // Set up dialogue volume scrollbar
+                if (dialogueVolumeScrollbar != null)
+                {
+                    // Use the value from AudioManager which has already loaded from PlayerPrefs
+                    dialogueVolumeScrollbar.value = audioManager.voiceLineVolume;
+                    Debug.Log($"Setting dialogue volume scrollbar to {audioManager.voiceLineVolume}");
+                    
+                    // Remove any existing listeners to prevent duplicates
+                    dialogueVolumeScrollbar.onValueChanged.RemoveAllListeners();
+                    dialogueVolumeScrollbar.onValueChanged.AddListener(OnDialogueVolumeChanged);
+                }
+
+                // Set up sound effects volume scrollbar
+                if (soundEffectsVolumeScrollbar != null)
+                {
+                    // Use the value from AudioManager which has already loaded from PlayerPrefs
+                    soundEffectsVolumeScrollbar.value = audioManager.cardSoundVolume;
+                    Debug.Log($"Setting sound effects volume scrollbar to {audioManager.cardSoundVolume}");
+                    
+                    // Remove any existing listeners to prevent duplicates
+                    soundEffectsVolumeScrollbar.onValueChanged.RemoveAllListeners();
+                    soundEffectsVolumeScrollbar.onValueChanged.AddListener(OnSoundEffectsVolumeChanged);
+                }
+                
+                // Set up background music volume scrollbar
+                if (bgMusicVolumeScrollbar != null)
+                {
+                    // Use the value from AudioManager which has already loaded from PlayerPrefs
+                    bgMusicVolumeScrollbar.value = audioManager.bgMusicVolume;
+                    Debug.Log($"Setting bg music volume scrollbar to {audioManager.bgMusicVolume}");
+                    
+                    // Remove any existing listeners to prevent duplicates
+                    bgMusicVolumeScrollbar.onValueChanged.RemoveAllListeners();
+                    bgMusicVolumeScrollbar.onValueChanged.AddListener(OnBGMusicVolumeChanged);
+                }
+                
+                // Set up UI sound volume scrollbar
+                if (uiSoundVolumeScrollbar != null)
+                {
+                    // Use the value from AudioManager which has already loaded from PlayerPrefs
+                    uiSoundVolumeScrollbar.value = audioManager.uiSoundVolume;
+                    Debug.Log($"Setting UI sound volume scrollbar to {audioManager.uiSoundVolume}");
+                    
+                    // Remove any existing listeners to prevent duplicates
+                    uiSoundVolumeScrollbar.onValueChanged.RemoveAllListeners();
+                    uiSoundVolumeScrollbar.onValueChanged.AddListener(OnUISoundVolumeChanged);
                 }
             }
-
-            // Set up master volume scrollbar
-            if (masterVolumeScrollbar != null)
+            catch (System.Exception e)
             {
-                masterVolumeScrollbar.value = audioManager.masterVolume;
-                masterVolumeScrollbar.onValueChanged.AddListener(OnMasterVolumeChanged);
-            }
-
-            // Set up dialogue volume scrollbar
-            if (dialogueVolumeScrollbar != null)
-            {
-                dialogueVolumeScrollbar.value = audioManager.voiceLineVolume;
-                dialogueVolumeScrollbar.onValueChanged.AddListener(OnDialogueVolumeChanged);
-            }
-
-            // Set up sound effects volume scrollbar
-            if (soundEffectsVolumeScrollbar != null)
-            {
-                soundEffectsVolumeScrollbar.value = audioManager.cardSoundVolume;
-                soundEffectsVolumeScrollbar.onValueChanged.AddListener(OnSoundEffectsVolumeChanged);
-            }
-            
-            // Set up background music volume scrollbar
-            if (bgMusicVolumeScrollbar != null)
-            {
-                bgMusicVolumeScrollbar.value = audioManager.bgMusicVolume;
-                bgMusicVolumeScrollbar.onValueChanged.AddListener(OnBGMusicVolumeChanged);
-            }
-            
-            // Set up UI sound volume scrollbar
-            if (uiSoundVolumeScrollbar != null)
-            {
-                uiSoundVolumeScrollbar.value = audioManager.uiSoundVolume;
-                uiSoundVolumeScrollbar.onValueChanged.AddListener(OnUISoundVolumeChanged);
+                Debug.LogError($"Error initializing audio sliders: {e.Message}");
             }
         }
 
@@ -1303,6 +1390,7 @@ namespace CardGame
             if (audioManager != null)
             {
                 audioManager.SetMasterVolume(value);
+                audioManager.SaveAllAudioSettings();
             }
         }
 
@@ -1312,6 +1400,7 @@ namespace CardGame
             if (audioManager != null)
             {
                 audioManager.SetDialogueVolume(value);
+                audioManager.SaveAllAudioSettings();
             }
         }
 
@@ -1321,6 +1410,7 @@ namespace CardGame
             if (audioManager != null)
             {
                 audioManager.SetSoundEffectsVolume(value);
+                audioManager.SaveAllAudioSettings();
             }
         }
         
@@ -1330,6 +1420,7 @@ namespace CardGame
             if (audioManager != null)
             {
                 audioManager.SetBGMusicVolume(value);
+                audioManager.SaveAllAudioSettings();
             }
         }
         
@@ -1339,6 +1430,7 @@ namespace CardGame
             if (audioManager != null)
             {
                 audioManager.SetUISoundVolume(value);
+                audioManager.SaveAllAudioSettings();
             }
         }
         
@@ -1370,7 +1462,7 @@ namespace CardGame
             if (audioManager == null) return;
             
             // Find all buttons in the scene
-            UnityEngine.UI.Button[] allButtons = FindObjectsOfType<UnityEngine.UI.Button>();
+            UnityEngine.UI.Button[] allButtons = FindObjectsByType<UnityEngine.UI.Button>(FindObjectsSortMode.None);
             foreach (var button in allButtons)
             {
                 SetupButtonAudio(button);
@@ -1415,9 +1507,48 @@ namespace CardGame
             return Time.deltaTime * (doubleDealingSpeedEnabled ? 1.0f / animationSpeedMultiplier : 1.0f);
         }
 
+        // Check if tutorial is currently active
+        public bool IsTutorialActive()
+        {
+            return tutorialCanvasGroup != null && 
+                   tutorialCanvasGroup.alpha > 0 && 
+                   currentTutorialIndex >= 0;
+        }
+
+        // Method to close tutorial if it's active
+        public void CloseTutorialIfActive()
+        {
+            if (IsTutorialActive())
+            {
+                Debug.Log("Closing active tutorial");
+                CleanupTutorial();
+                
+                // Make sure the game isn't paused
+                if (gameManager != null)
+                {
+                    gameManager.SetGamePaused(false);
+                    gameManager.PauseForTutorial(false);
+                }
+                
+                // Display a brief message
+                if (gameStatusText != null)
+                {
+                    gameStatusText.text = "Tutorial closed";
+                    StartCoroutine(ClearStatusAfterDelay(2.0f));
+                }
+            }
+        }
+
         // Toggle double dealing speed with feedback
         public void ToggleDoubleDealingSpeed()
         {
+            // If tutorial is active, close it first
+            if (IsTutorialActive())
+            {
+                CloseTutorialIfActive();
+                return;
+            }
+
             if (doubleDealingSpeedEnabled)
             {
                 DisableDoubleDealingSpeed();
